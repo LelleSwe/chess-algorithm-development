@@ -1,7 +1,7 @@
 use std::mem;
 use std::time::{Duration, Instant};
 
-use chess::{Action, Board, Color, Game, GameResult};
+use chess::{Action, Color, Game, GameResult};
 
 use crate::common::algorithm::Algorithm;
 use crate::common::utils;
@@ -9,7 +9,6 @@ use crate::common::utils;
 pub(crate) struct Competition {
     algo1: Box<dyn Algorithm>,
     algo2: Box<dyn Algorithm>,
-    game_history: Vec<Board>,
     results: Option<CompetitionResults>,
 }
 
@@ -104,7 +103,6 @@ impl Competition {
         Self {
             algo1,
             algo2,
-            game_history: Vec::new(),
             results: None,
         }
     }
@@ -122,8 +120,8 @@ impl Competition {
             let start = Instant::now();
             let side_to_move = game.side_to_move();
             let next_action = match side_to_move {
-                Color::White => algo1.next_move(&game),
-                Color::Black => algo2.next_move(&game),
+                Color::White => algo1.next_move(&game.current_position()),
+                Color::Black => algo2.next_move(&game.current_position()),
             };
             let end = Instant::now();
 
@@ -210,7 +208,9 @@ impl Competition {
         results
     }
 
+    #[allow(dead_code)]
     fn get_average_eval(&self, game: &Game) -> f32 {
-        self.algo1.eval(game) + self.algo2.eval(game) / 2.
+        let board = game.current_position();
+        self.algo1.eval(&board) + self.algo2.eval(&board) / 2.
     }
 }

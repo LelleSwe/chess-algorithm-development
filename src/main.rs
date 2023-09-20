@@ -1,4 +1,4 @@
-use crate::algorithms::random_move::{InstaResign, RandomMoveClaimDraw};
+use crate::algorithms::random_move::InstaResign;
 
 use self::algorithms::random_move::RandomMove;
 use self::pitter::logic::Competition;

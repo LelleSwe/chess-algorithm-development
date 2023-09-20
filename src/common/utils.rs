@@ -1,4 +1,4 @@
-use chess::{ChessMove, Game, MoveGen};
+use chess::{Board, ChessMove, Color, Game, MoveGen, Piece};
 use rand::Rng;
 
 pub(crate) fn random_starting_position(num_random_moves: u32) -> Game {
@@ -10,4 +10,32 @@ pub(crate) fn random_starting_position(num_random_moves: u32) -> Game {
         game.make_move(legal_moves[rand::thread_rng().gen_range(0..legal_moves.len())]);
     }
     game
+}
+
+/// Returns tuple where first element is white total material and last element is black total
+/// material
+pub(crate) fn material_each_side(board: &Board) -> (u32, u32) {
+    let mut output = (0, 0);
+    for piece_type in chess::ALL_PIECES {
+        let piece_bitboard = board.pieces(piece_type);
+        let bitboard_white = board.color_combined(Color::White) & piece_bitboard;
+        let num_white_pieces = bitboard_white.popcnt();
+        output.0 += num_white_pieces * piece_value(piece_type);
+
+        // Black pieces are equal to the total amount minus the white pieces
+        let num_black_pieces = piece_bitboard.popcnt() - num_white_pieces;
+        output.1 += num_black_pieces * piece_value(piece_type);
+    }
+    output
+}
+
+pub(crate) fn piece_value(piece: Piece) -> u32 {
+    match piece {
+        Piece::Pawn => 1,
+        Piece::Knight => 3,
+        Piece::Bishop => 3,
+        Piece::Rook => 5,
+        Piece::Queen => 9,
+        Piece::King => 1000,
+    }
 }
