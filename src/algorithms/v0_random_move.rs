@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use chess::{Action, Board, ChessMove};
 use rand::Rng;
 
@@ -7,7 +9,12 @@ use crate::common::algorithm::Algorithm;
 pub(crate) struct RandomMove;
 
 impl Algorithm for RandomMove {
-    fn next_action(&self, board: &Board, analyze: bool) -> (Action, Vec<String>) {
+    fn next_action(
+        &self,
+        board: &Board,
+        analyze: bool,
+        _deadline: Instant,
+    ) -> (Action, Vec<String>) {
         let legal_moves: Vec<ChessMove> = chess::MoveGen::new_legal(board).collect();
         let index = rand::thread_rng().gen_range(0..legal_moves.len());
 
@@ -22,7 +29,12 @@ impl Algorithm for RandomMove {
 pub(crate) struct InstaResign;
 
 impl Algorithm for InstaResign {
-    fn next_action(&self, board: &Board, analyze: bool) -> (Action, Vec<String>) {
+    fn next_action(
+        &self,
+        board: &Board,
+        analyze: bool,
+        _deadline: Instant,
+    ) -> (Action, Vec<String>) {
         (Action::Resign(board.side_to_move()), Vec::new())
     }
 

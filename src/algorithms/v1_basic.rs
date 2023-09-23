@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use chess::{Action, Board, Color, MoveGen};
 
 use crate::common::algorithm::Algorithm;
@@ -38,7 +40,12 @@ impl BasicAlgo {
 }
 
 impl Algorithm for BasicAlgo {
-    fn next_action(&self, board: &Board, analyze: bool) -> (chess::Action, Vec<String>) {
+    fn next_action(
+        &self,
+        board: &Board,
+        analyze: bool,
+        _deadline: Instant,
+    ) -> (chess::Action, Vec<String>) {
         self.next_action(board, 2, analyze)
     }
 

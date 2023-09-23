@@ -21,7 +21,8 @@ pub(crate) enum GamePairOutcome {
     /// Algo2 won one and when the algorithms switched places it was a draw
     Algo2HalfWin,
     Draw,
-    Inconclusive,
+    InconclusiveSameColorWin,
+    InconclusiveTooLong,
 }
 
 impl GamePairOutcome {
@@ -31,18 +32,18 @@ impl GamePairOutcome {
         use GameOutcome::*;
         use GamePairOutcome::{Algo1HalfWin, Algo1Win, Algo2HalfWin, Algo2Win};
         match (algo1_white, algo2_white) {
-            (WhiteWin, WhiteWin) => GamePairOutcome::Inconclusive,
+            (WhiteWin, WhiteWin) => GamePairOutcome::InconclusiveSameColorWin,
             (WhiteWin, BlackWin) => Algo1Win,
             (WhiteWin, Draw) => Algo1HalfWin,
             (BlackWin, WhiteWin) => Algo2Win,
-            (BlackWin, BlackWin) => GamePairOutcome::Inconclusive,
+            (BlackWin, BlackWin) => GamePairOutcome::InconclusiveSameColorWin,
             (BlackWin, Draw) => Algo2HalfWin,
             (Draw, WhiteWin) => Algo2HalfWin,
             (Draw, BlackWin) => Algo1HalfWin,
             (Draw, Draw) => GamePairOutcome::Draw,
             // Consider changing this in the future, this is an arbitrary choice
-            (Inconclusive, _) => GamePairOutcome::Inconclusive,
-            (_, Inconclusive) => GamePairOutcome::Inconclusive,
+            (Inconclusive, _) => GamePairOutcome::InconclusiveTooLong,
+            (_, Inconclusive) => GamePairOutcome::InconclusiveTooLong,
         }
     }
 }
@@ -56,6 +57,7 @@ pub(crate) enum GameOutcome {
     Inconclusive,
 }
 
+#[allow(unused_assignments)]
 #[derive(Default, Debug, Copy, Clone)]
 pub(crate) struct CompetitionResults {
     /// How many pairs of games that Algo1 wins from both positions
@@ -65,7 +67,10 @@ pub(crate) struct CompetitionResults {
     /// Pairs of games that draw no matter which algo is playing which side
     draws: usize,
     /// Same color wins no matter what algo is playing it
-    inconclusive: usize,
+    inconclusive_same_color_win: usize,
+
+    /// One of the games went on for too long
+    inconclusive_too_long: usize,
 
     /// Pairs of games that wins when Algo1 is playing and draw on the other
     algo1_half_wins: usize,
@@ -92,8 +97,9 @@ impl CompetitionResults {
             GamePairOutcome::Algo1Win => self.algo1_wins += 1,
             GamePairOutcome::Algo2Win => self.algo2_wins += 1,
             GamePairOutcome::Draw => self.draws += 1,
-            GamePairOutcome::Inconclusive => self.inconclusive += 1,
+            GamePairOutcome::InconclusiveTooLong => self.inconclusive_too_long += 1,
             GamePairOutcome::Algo1HalfWin => self.algo1_half_wins += 1,
+            GamePairOutcome::InconclusiveSameColorWin => self.inconclusive_same_color_win += 1,
             GamePairOutcome::Algo2HalfWin => self.algo2_half_wins += 1,
         }
     }
@@ -122,8 +128,16 @@ impl Competition {
             let start = Instant::now();
             let side_to_move = game.side_to_move();
             let next_action = match side_to_move {
-                Color::White => algo1.next_action(&game.current_position(), false),
-                Color::Black => algo2.next_action(&game.current_position(), false),
+                Color::White => algo1.next_action(
+                    &game.current_position(),
+                    false,
+                    Instant::now() + Duration::from_micros(2000),
+                ),
+                Color::Black => algo2.next_action(
+                    &game.current_position(),
+                    false,
+                    Instant::now() + Duration::from_micros(2000),
+                ),
             };
             let end = Instant::now();
 
@@ -168,8 +182,8 @@ impl Competition {
     }
 
     fn play_game_pair(&self, game: Game) -> (GameInfo, GameInfo) {
-        let outcome1 = self.play_game(game.clone(), false, 500);
-        let outcome2 = self.play_game(game, true, 500);
+        let outcome1 = self.play_game(game.clone(), false, 150);
+        let outcome2 = self.play_game(game, true, 150);
 
         (outcome1, outcome2)
     }
@@ -186,7 +200,7 @@ impl Competition {
         let mut num_plies_algo2 = 0;
 
         let mut first_half_win = true;
-        for _ in 0..500 {
+        for _ in 0..200 {
             let game = utils::random_starting_position(5);
 
             let game_pair_info = self.play_game_pair(game);
@@ -269,9 +283,11 @@ impl Competition {
             // in the future, we will have to make new instances of the algos somehow then
             let algo_out = if i % 2 == 1 {
                 // White's turn
-                self.algo1.next_action(&board, true)
+                self.algo1
+                    .next_action(&board, true, Instant::now() + Duration::from_micros(2000))
             } else {
-                self.algo2.next_action(&board, true)
+                self.algo2
+                    .next_action(&board, true, Instant::now() + Duration::from_micros(2000))
             };
 
             if i % 2 == 1 {

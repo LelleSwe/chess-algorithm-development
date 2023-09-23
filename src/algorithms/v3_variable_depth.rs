@@ -1,18 +1,19 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use chess::{Action, Board, BoardStatus, Color, MoveGen};
 
 use crate::common::algorithm::Algorithm;
-use crate::common::utils;
+use crate::common::utils::{self};
 
-pub(crate) struct BasicNoStalemateAlgo;
+pub(crate) struct VariableDepthAlgo;
 
-impl BasicNoStalemateAlgo {
+impl VariableDepthAlgo {
     fn node_eval_recursive(
         &self,
         board: &Board,
         depth: u32,
         analyze: bool,
+        deadline: Option<Instant>,
     ) -> (Option<Action>, f32, Option<Vec<String>>) {
         if depth == 0 {
             return (None, self.eval(board), None);
@@ -34,8 +35,14 @@ impl BasicNoStalemateAlgo {
         // lowest/highest eval
 
         for chess_move in legal_moves {
+            if deadline.map_or(false, |deadline| {
+                !Instant::now().saturating_duration_since(deadline).is_zero()
+            }) {
+                return best_eval;
+            };
+
             let new_position = board.make_move_new(chess_move);
-            let eval = self.node_eval_recursive(&new_position, depth - 1, false);
+            let eval = self.node_eval_recursive(&new_position, depth - 1, false, deadline);
 
             if maximise && eval.1 > best_eval.1 || !maximise && eval.1 < best_eval.1 {
                 if analyze {
@@ -76,22 +83,35 @@ impl BasicNoStalemateAlgo {
         board: &Board,
         depth: u32,
         analyze: bool,
+        deadline: Option<Instant>,
     ) -> (chess::Action, Vec<String>) {
-        let out = self.node_eval_recursive(board, depth, analyze);
+        let out = self.node_eval_recursive(board, depth, analyze, deadline);
         let action = out.0.unwrap_or(Action::Resign(board.side_to_move()));
         let analyzer_data = out.2.unwrap_or_default();
         (action, analyzer_data)
     }
 }
 
-impl Algorithm for BasicNoStalemateAlgo {
+impl Algorithm for VariableDepthAlgo {
     fn next_action(
         &self,
         board: &Board,
         analyze: bool,
-        _deadline: Instant,
+        deadline: Instant,
     ) -> (chess::Action, Vec<String>) {
-        self.next_action(board, 2, analyze)
+        let mut deepest_complete_output = self.next_action(board, 2, false, None);
+        for depth in 3..10 {
+            let latest_output = self.next_action(board, depth, false, Some(deadline));
+            if !Instant::now().saturating_duration_since(deadline).is_zero() {
+                if analyze {
+                    return self.next_action(board, depth, true, None);
+                }
+                break;
+            } else {
+                deepest_complete_output = latest_output;
+            }
+        }
+        deepest_complete_output
     }
 
     fn eval(&self, board: &Board) -> f32 {
