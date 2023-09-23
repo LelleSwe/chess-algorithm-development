@@ -12,7 +12,7 @@ impl Algorithm for RandomMove {
     fn next_action(
         &self,
         board: &Board,
-        analyze: bool,
+        _analyze: bool,
         _deadline: Instant,
     ) -> (Action, Vec<String>) {
         let legal_moves: Vec<ChessMove> = chess::MoveGen::new_legal(board).collect();
@@ -32,7 +32,7 @@ impl Algorithm for InstaResign {
     fn next_action(
         &self,
         board: &Board,
-        analyze: bool,
+        _analyze: bool,
         _deadline: Instant,
     ) -> (Action, Vec<String>) {
         (Action::Resign(board.side_to_move()), Vec::new())

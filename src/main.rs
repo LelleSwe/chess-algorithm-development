@@ -1,5 +1,3 @@
-use crate::algorithms::v0_random_move::RandomMove;
-use crate::algorithms::v1_basic::BasicAlgo;
 use crate::algorithms::v2_basic_no_stalemate::BasicNoStalemateAlgo;
 use crate::algorithms::v3_variable_depth::VariableDepthAlgo;
 

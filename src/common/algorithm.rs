@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use chess::{Action, Board};
+use chess::Board;
 
 pub(crate) trait Algorithm {
     fn next_action(
