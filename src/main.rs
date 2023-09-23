@@ -1,4 +1,8 @@
+use chess::{Action, Board, Game};
+
 use crate::algorithms::basic_no_stalemate::BasicNoStalemateAlgo;
+use crate::common::utils;
+use crate::pitter::logic::{GameOutcome, GamePairOutcome};
 
 use self::algorithms::random_move::RandomMove;
 use self::pitter::logic::Competition;

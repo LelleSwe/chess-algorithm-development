@@ -52,7 +52,7 @@ pub(crate) fn to_pgn(game: &Game) -> String {
                 output.push(' ');
             }
             if i % 2 == 0 {
-                output.push_str(&format!("{}. ", i / 2))
+                output.push_str(&format!("{}. ", i / 2 + 1))
             }
             output.push_str(&chess_move.to_string());
             i += 1;
@@ -71,5 +71,3 @@ macro_rules! vector_push_debug {
 }
 
 pub(crate) use vector_push_debug;
-
-use crate::algorithms::random_move;

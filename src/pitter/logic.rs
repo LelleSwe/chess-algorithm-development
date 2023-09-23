@@ -7,8 +7,8 @@ use crate::common::algorithm::Algorithm;
 use crate::common::utils;
 
 pub(crate) struct Competition {
-    algo1: Box<dyn Algorithm>,
-    algo2: Box<dyn Algorithm>,
+    pub(crate) algo1: Box<dyn Algorithm>,
+    pub(crate) algo2: Box<dyn Algorithm>,
     results: Option<CompetitionResults>,
 }
 
@@ -48,7 +48,7 @@ impl GamePairOutcome {
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Default)]
-enum GameOutcome {
+pub(crate) enum GameOutcome {
     WhiteWin,
     BlackWin,
     Draw,
@@ -75,7 +75,7 @@ pub(crate) struct CompetitionResults {
 
 #[derive(Debug, Default)]
 pub(crate) struct GameInfo {
-    outcome: GameOutcome,
+    pub(crate) outcome: GameOutcome,
     num_plies_algo1: usize,
     num_plies_algo2: usize,
 
@@ -109,7 +109,7 @@ impl Competition {
         }
     }
 
-    fn play_game(&self, mut game: Game, reversed: bool, max_plies: usize) -> GameInfo {
+    pub(crate) fn play_game(&self, mut game: Game, reversed: bool, max_plies: usize) -> GameInfo {
         let mut game_info = GameInfo::default();
         let mut algo1 = &self.algo1;
         let mut algo2 = &self.algo2;
@@ -213,8 +213,8 @@ impl Competition {
         let time_per_move_algo2 = time_spent_on_move_gen_algo2 / num_plies_algo2 as u32;
 
         println!(
-            "Finished! Outcomes: {:?}\nTime per move Algo1: {:?}\nTime per move Algo2: {:?}",
-            results, time_per_move_algo1, time_per_move_algo2
+            "Time per move Algo1: {:?}\nTime per move Algo2: {:?}",
+            time_per_move_algo1, time_per_move_algo2
         );
         self.results = Some(results);
         results
@@ -250,10 +250,11 @@ impl Competition {
         }
     }
 
-    pub(crate) fn analyze_algorithm_choices(&self) {
-        let game = self.find_game(|(_game_info1, _game_info2), game_pair_outcome| {
-            game_pair_outcome == GamePairOutcome::Algo2HalfWin
-        });
+    pub(crate) fn analyze_algorithm_choices<P>(&self, predicate: P)
+    where
+        P: Fn(&(GameInfo, GameInfo), GamePairOutcome) -> bool,
+    {
+        let game = self.find_game(predicate);
 
         let game = game.unwrap();
 

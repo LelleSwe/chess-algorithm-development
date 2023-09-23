@@ -1,7 +1,7 @@
 use chess::{Action, Board, BoardStatus, Color, MoveGen};
 
 use crate::common::algorithm::Algorithm;
-use crate::common::utils;
+use crate::common::utils::{self, vector_push_debug};
 
 pub(crate) struct BasicNoStalemateAlgo;
 
@@ -20,9 +20,17 @@ impl BasicNoStalemateAlgo {
         let maximise: bool = board.side_to_move() == Color::White;
 
         let mut best_eval = (None, if maximise { f32::MIN } else { f32::MAX }, None);
-        let mut there_were_chess_moves = false;
+
+        let board_status = board.status();
+        if board_status == BoardStatus::Stalemate {
+            best_eval = (None, 0., None)
+        }
+        // If we arrive at this position, and it is checkmate, then we know that the side playing
+        // has been checkmated, and therefore the `best_eval` is correct. Because if we tried to
+        // maximise, we failed, and if trying to minimise, we failed and therefore get the
+        // lowest/highest eval
+
         for chess_move in MoveGen::new_legal(board) {
-            there_were_chess_moves = true;
             let new_position = board.make_move_new(chess_move);
             let eval = self.node_eval_recursive(&new_position, depth - 1, false);
 
@@ -55,10 +63,6 @@ impl BasicNoStalemateAlgo {
                 best_eval.1 = eval.1;
                 best_eval.0 = Some(Action::MakeMove(chess_move));
             }
-        }
-        if !there_were_chess_moves {
-            // That's a stalemate!
-            best_eval = (None, 0., None)
         }
 
         best_eval
