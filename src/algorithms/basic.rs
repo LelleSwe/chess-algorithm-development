@@ -28,16 +28,18 @@ impl BasicAlgo {
         best_eval
     }
 
-    fn next_action(&self, board: &Board, depth: u32) -> Action {
-        self.node_eval_recursive(board, depth)
+    fn next_action(&self, board: &Board, depth: u32, _analyze: bool) -> (Action, Vec<String>) {
+        let out = self
+            .node_eval_recursive(board, depth)
             .0
-            .unwrap_or(Action::Resign(board.side_to_move()))
+            .unwrap_or(Action::Resign(board.side_to_move()));
+        (out, Vec::new())
     }
 }
 
 impl Algorithm for BasicAlgo {
-    fn next_move(&self, board: &Board) -> chess::Action {
-        self.next_action(board, 2)
+    fn next_action(&self, board: &Board, analyze: bool) -> (chess::Action, Vec<String>) {
+        self.next_action(board, 2, analyze)
     }
 
     fn eval(&self, board: &Board) -> f32 {

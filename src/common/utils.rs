@@ -7,6 +7,9 @@ pub(crate) fn random_starting_position(num_random_moves: u32) -> Game {
         let board = game.current_position();
         let legal_moves: Vec<ChessMove> = MoveGen::new_legal(&board).collect();
 
+        if legal_moves.is_empty() {
+            return random_starting_position(num_random_moves);
+        }
         game.make_move(legal_moves[rand::thread_rng().gen_range(0..legal_moves.len())]);
     }
     game
@@ -39,3 +42,34 @@ pub(crate) fn piece_value(piece: Piece) -> u32 {
         Piece::King => 1000,
     }
 }
+
+pub(crate) fn to_pgn(game: &Game) -> String {
+    let mut output = String::new();
+    let mut i = 0;
+    for action in game.actions() {
+        if let chess::Action::MakeMove(chess_move) = action {
+            if i != 0 {
+                output.push(' ');
+            }
+            if i % 2 == 0 {
+                output.push_str(&format!("{}. ", i / 2))
+            }
+            output.push_str(&chess_move.to_string());
+            i += 1;
+        }
+    }
+    output
+}
+
+macro_rules! vector_push_debug {
+    ($vec:expr, $var:expr $(,)?) => {
+        $vec.push(format!("{} = {}", stringify!($var), $var))
+    };
+    ($vec:expr, $($var:expr),+ $(,)?) =>{
+        ($($crate::common::utils::vector_push_debug!($vec, $var)),+,)
+    }
+}
+
+pub(crate) use vector_push_debug;
+
+use crate::algorithms::random_move;

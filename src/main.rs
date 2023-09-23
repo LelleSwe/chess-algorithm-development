@@ -1,4 +1,4 @@
-use crate::algorithms::random_move::InstaResign;
+use crate::algorithms::basic_no_stalemate::BasicNoStalemateAlgo;
 
 use self::algorithms::random_move::RandomMove;
 use self::pitter::logic::Competition;
@@ -8,10 +8,11 @@ mod common;
 mod pitter;
 
 fn main() {
-    let algo1 = RandomMove;
-    let algo2 = InstaResign;
+    type Algo1 = RandomMove;
+    type Algo2 = BasicNoStalemateAlgo;
 
-    let mut competition = Competition::new(Box::new(algo1), Box::new(algo2));
+    let mut competition = Competition::new(Box::new(Algo1 {}), Box::new(Algo2 {}));
+
     let results = competition.start_competition();
     dbg!(results);
 }

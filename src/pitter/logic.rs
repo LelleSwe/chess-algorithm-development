@@ -1,7 +1,7 @@
 use std::mem;
 use std::time::{Duration, Instant};
 
-use chess::{Action, Color, Game, GameResult};
+use chess::{Action, Board, Color, Game, GameResult};
 
 use crate::common::algorithm::Algorithm;
 use crate::common::utils;
@@ -13,7 +13,7 @@ pub(crate) struct Competition {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum GamePairOutcome {
+pub(crate) enum GamePairOutcome {
     Algo1Win,
     /// Algo1 won one and when the algorithms switched places it was a draw
     Algo1HalfWin,
@@ -81,6 +81,8 @@ pub(crate) struct GameInfo {
 
     time_spent_on_move_gen_algo1: Duration,
     time_spent_on_move_gen_algo2: Duration,
+
+    pub(crate) game: Option<Game>,
 }
 
 impl CompetitionResults {
@@ -120,8 +122,8 @@ impl Competition {
             let start = Instant::now();
             let side_to_move = game.side_to_move();
             let next_action = match side_to_move {
-                Color::White => algo1.next_move(&game.current_position()),
-                Color::Black => algo2.next_move(&game.current_position()),
+                Color::White => algo1.next_action(&game.current_position(), false),
+                Color::Black => algo2.next_action(&game.current_position(), false),
             };
             let end = Instant::now();
 
@@ -134,7 +136,7 @@ impl Competition {
                 game_info.num_plies_algo1 += 1;
             }
 
-            match next_action {
+            match next_action.0 {
                 Action::MakeMove(chess_move) => game.make_move(chess_move),
                 Action::OfferDraw(color) => game.offer_draw(color),
                 Action::AcceptDraw => game.accept_draw(),
@@ -152,14 +154,17 @@ impl Competition {
                     GameResult::DrawAccepted => GameOutcome::Draw,
                     GameResult::DrawDeclared => GameOutcome::Draw,
                 };
-                return game_info;
+                break;
             }
             if num_plies >= max_plies {
                 game_info.outcome = GameOutcome::Inconclusive;
-                return game_info;
+                break;
             }
             num_plies += 1
         }
+
+        game_info.game = Some(game);
+        game_info
     }
 
     fn play_game_pair(&self, game: Game) -> (GameInfo, GameInfo) {
@@ -180,13 +185,20 @@ impl Competition {
         let mut num_plies_algo1 = 0;
         let mut num_plies_algo2 = 0;
 
+        let mut first_half_win = true;
         for _ in 0..500 {
             let game = utils::random_starting_position(5);
+
             let game_pair_info = self.play_game_pair(game);
             let combined_outcome = GamePairOutcome::combine_outcomes(
                 game_pair_info.0.outcome,
                 game_pair_info.1.outcome,
             );
+            if combined_outcome == GamePairOutcome::Algo2HalfWin && first_half_win {
+                first_half_win = false;
+                println!("{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
+                println!("{}", utils::to_pgn(&game_pair_info.1.game.unwrap()));
+            }
             results.register_game_outcome(combined_outcome);
 
             time_spent_on_move_gen_algo1 += game_pair_info.0.time_spent_on_move_gen_algo1
@@ -212,5 +224,65 @@ impl Competition {
     fn get_average_eval(&self, game: &Game) -> f32 {
         let board = game.current_position();
         self.algo1.eval(&board) + self.algo2.eval(&board) / 2.
+    }
+
+    pub(crate) fn find_game<P>(&self, predicate: P) -> Option<(GameInfo, GameInfo)>
+    where
+        P: Fn(&(GameInfo, GameInfo), GamePairOutcome) -> bool,
+    {
+        let mut i = 0;
+        loop {
+            let game = utils::random_starting_position((i % 100) * 2 + 4);
+
+            let game_pair_info = self.play_game_pair(game);
+            let combined_outcome = GamePairOutcome::combine_outcomes(
+                game_pair_info.0.outcome,
+                game_pair_info.1.outcome,
+            );
+
+            if predicate(&game_pair_info, combined_outcome) {
+                return Some(game_pair_info);
+            }
+            i += 1;
+            if i > 500 {
+                return None;
+            }
+        }
+    }
+
+    pub(crate) fn analyze_algorithm_choices(&self) {
+        let game = self.find_game(|(_game_info1, _game_info2), game_pair_outcome| {
+            game_pair_outcome == GamePairOutcome::Algo2HalfWin
+        });
+
+        let game = game.unwrap();
+
+        let mut i = 1;
+        println!("{}", utils::to_pgn(game.0.game.as_ref().unwrap()));
+        let mut board = Board::default();
+
+        for chess_move in game.0.game.as_ref().unwrap().actions() {
+            let Action::MakeMove(chess_move) = chess_move else {continue};
+
+            // PROBLEM!! This will be unreliable if the algorithms have persistent data over moves
+            // in the future, we will have to make new instances of the algos somehow then
+            let algo_out = if i % 2 == 1 {
+                // White's turn
+                self.algo1.next_action(&board, true)
+            } else {
+                self.algo2.next_action(&board, true)
+            };
+
+            if i % 2 == 1 {
+                println!("{}. {} ...", (i + 1) / 2, chess_move);
+            } else {
+                println!("{}. ... {}", (i + 1) / 2, chess_move);
+            }
+            for analyze_string in algo_out.1 {
+                println!("  - {}", analyze_string);
+            }
+            board = board.make_move_new(*chess_move);
+            i += 1;
+        }
     }
 }
