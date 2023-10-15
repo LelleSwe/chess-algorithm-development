@@ -1,3 +1,6 @@
+use std::ops::AddAssign;
+use std::time::Duration;
+
 use chess::{Board, ChessMove, Color, Game, MoveGen, Piece};
 use rand::Rng;
 
@@ -61,6 +64,7 @@ pub(crate) fn to_pgn(game: &Game) -> String {
     output
 }
 
+/// Pushes the debug string representation into this vector. Used for printing debug information
 macro_rules! vector_push_debug {
     ($vec:expr, $var:expr $(,)?) => {
         $vec.push(format!("{} = {}", stringify!($var), $var))
@@ -71,3 +75,26 @@ macro_rules! vector_push_debug {
 }
 
 pub(crate) use vector_push_debug;
+
+#[derive(Default, Debug)]
+pub(crate) struct Stats {
+    pub(crate) alpha_beta_breaks: u32,
+    pub(crate) depth: u32,
+    pub(crate) leaves_visited: u32,
+    pub(crate) nodes_visited: u32,
+    pub(crate) num_plies: u32,
+    pub(crate) time_spent: Duration,
+    pub(crate) progress_on_next_layer: f32,
+}
+
+impl AddAssign for Stats {
+    fn add_assign(&mut self, rhs: Self) {
+        self.nodes_visited += rhs.nodes_visited;
+        self.depth += rhs.depth;
+        self.leaves_visited += rhs.leaves_visited;
+        self.alpha_beta_breaks += rhs.alpha_beta_breaks;
+        self.num_plies += rhs.num_plies;
+        self.time_spent += rhs.time_spent;
+        self.progress_on_next_layer += rhs.progress_on_next_layer;
+    }
+}

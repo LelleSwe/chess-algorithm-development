@@ -3,12 +3,12 @@ use std::time::{Duration, Instant};
 
 use chess::{Action, Board, Color, Game, GameResult};
 
-use crate::common::algorithm::Algorithm;
-use crate::common::utils;
+use crate::algorithms::the_algorithm::Algorithm;
+use crate::common::utils::{self, Stats};
 
 pub(crate) struct Competition {
-    pub(crate) algo1: Box<dyn Algorithm>,
-    pub(crate) algo2: Box<dyn Algorithm>,
+    pub(crate) algo1: Algorithm,
+    pub(crate) algo2: Algorithm,
     results: Option<CompetitionResults>,
 }
 
@@ -81,11 +81,8 @@ pub(crate) struct CompetitionResults {
 #[derive(Debug, Default)]
 pub(crate) struct GameInfo {
     pub(crate) outcome: GameOutcome,
-    num_plies_algo1: usize,
-    num_plies_algo2: usize,
-
-    time_spent_on_move_gen_algo1: Duration,
-    time_spent_on_move_gen_algo2: Duration,
+    /// First is algo1 stats and second is algo2 stats
+    stats: (Stats, Stats),
 
     pub(crate) game: Option<Game>,
 }
@@ -107,7 +104,7 @@ impl CompetitionResults {
 
 /// Reversed == true means that algo1 plays black
 impl Competition {
-    pub(crate) fn new(algo1: Box<dyn Algorithm>, algo2: Box<dyn Algorithm>) -> Competition {
+    pub(crate) fn new(algo1: Algorithm, algo2: Algorithm) -> Competition {
         Self {
             algo1,
             algo2,
@@ -127,27 +124,27 @@ impl Competition {
         loop {
             let start = Instant::now();
             let side_to_move = game.side_to_move();
-            let next_action = match side_to_move {
+            let mut next_action = match side_to_move {
                 Color::White => algo1.next_action(
                     &game.current_position(),
-                    false,
                     Instant::now() + Duration::from_micros(2000),
                 ),
                 Color::Black => algo2.next_action(
                     &game.current_position(),
-                    false,
                     Instant::now() + Duration::from_micros(2000),
                 ),
             };
             let end = Instant::now();
+            next_action.2.time_spent = end - start;
+            next_action.2.num_plies = 1;
 
             if side_to_move == Color::Black && !reversed || side_to_move == Color::White && reversed
             {
-                game_info.time_spent_on_move_gen_algo2 += end - start;
-                game_info.num_plies_algo2 += 1;
+                // This means algo2 is playing
+                // next_action.2 is has the Stats object. TODO: Make this clearer by refactoring
+                game_info.stats.1 += next_action.2;
             } else {
-                game_info.time_spent_on_move_gen_algo1 += end - start;
-                game_info.num_plies_algo1 += 1;
+                game_info.stats.0 += next_action.2;
             }
 
             match next_action.0 {
@@ -194,13 +191,9 @@ impl Competition {
         }
         let mut results = CompetitionResults::default();
 
-        let mut time_spent_on_move_gen_algo1 = Duration::default();
-        let mut time_spent_on_move_gen_algo2 = Duration::default();
-        let mut num_plies_algo1 = 0;
-        let mut num_plies_algo2 = 0;
+        let mut sum_stats = (Stats::default(), Stats::default());
 
-        let mut first_half_win = true;
-        for _ in 0..200 {
+        for _ in 0..2 {
             let game = utils::random_starting_position(5);
 
             let game_pair_info = self.play_game_pair(game);
@@ -208,28 +201,44 @@ impl Competition {
                 game_pair_info.0.outcome,
                 game_pair_info.1.outcome,
             );
-            if combined_outcome == GamePairOutcome::Algo2HalfWin && first_half_win {
-                first_half_win = false;
-                println!("{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
-                println!("{}", utils::to_pgn(&game_pair_info.1.game.unwrap()));
-            }
+
+            println!("Game pair played.  Outcome: {:?}", combined_outcome);
+            println!("{}", utils::to_pgn(&game_pair_info.1.game.unwrap()));
+
             results.register_game_outcome(combined_outcome);
 
-            time_spent_on_move_gen_algo1 += game_pair_info.0.time_spent_on_move_gen_algo1
-                + game_pair_info.1.time_spent_on_move_gen_algo1;
-            num_plies_algo1 += game_pair_info.0.num_plies_algo1 + game_pair_info.1.num_plies_algo1;
-
-            time_spent_on_move_gen_algo2 += game_pair_info.0.time_spent_on_move_gen_algo2
-                + game_pair_info.1.time_spent_on_move_gen_algo2;
-            num_plies_algo2 += game_pair_info.0.num_plies_algo2 + game_pair_info.1.num_plies_algo2;
+            // First game algo1
+            sum_stats.0 += game_pair_info.0.stats.0;
+            // Second game algo1, etc.
+            sum_stats.0 += game_pair_info.1.stats.0;
+            sum_stats.1 += game_pair_info.0.stats.1;
+            sum_stats.1 += game_pair_info.1.stats.1;
         }
-        let time_per_move_algo1 = time_spent_on_move_gen_algo1 / num_plies_algo1 as u32;
-        let time_per_move_algo2 = time_spent_on_move_gen_algo2 / num_plies_algo2 as u32;
+        let time_per_move_algo1 = sum_stats.0.time_spent / sum_stats.0.num_plies;
+        let time_per_move_algo2 = sum_stats.1.time_spent / sum_stats.1.num_plies;
+        let avg_depth_algo1 = sum_stats.0.depth as f32 / sum_stats.0.num_plies as f32;
+        let avg_depth_algo2 = sum_stats.1.depth as f32 / sum_stats.1.num_plies as f32;
+        let avg_progress_algo1 = sum_stats.0.progress_on_next_layer / sum_stats.0.num_plies as f32;
+        let avg_progress_algo2 = sum_stats.1.progress_on_next_layer / sum_stats.1.num_plies as f32;
+        let avg_alpha_beta_breaks_algo1 =
+            sum_stats.0.alpha_beta_breaks as f32 / sum_stats.0.num_plies as f32;
+        let avg_alpha_beta_breaks_algo2 =
+            sum_stats.1.alpha_beta_breaks as f32 / sum_stats.1.num_plies as f32;
 
         println!(
             "Time per move Algo1: {:?}\nTime per move Algo2: {:?}",
             time_per_move_algo1, time_per_move_algo2
         );
+        println!(
+            "Avg depth Algo1: {:?} + {}\nAvg depth Algo2: {:?} + {}",
+            avg_depth_algo1, avg_progress_algo1, avg_depth_algo2, avg_progress_algo2
+        );
+
+        println!(
+            "A-B breaks per move Algo1: {}\nA-B breaks per move Algo2: {}",
+            avg_alpha_beta_breaks_algo1, avg_alpha_beta_breaks_algo2
+        );
+
         self.results = Some(results);
         results
     }
@@ -284,10 +293,10 @@ impl Competition {
             let algo_out = if i % 2 == 1 {
                 // White's turn
                 self.algo1
-                    .next_action(&board, true, Instant::now() + Duration::from_micros(2000))
+                    .next_action(&board, Instant::now() + Duration::from_micros(2000))
             } else {
                 self.algo2
-                    .next_action(&board, true, Instant::now() + Duration::from_micros(2000))
+                    .next_action(&board, Instant::now() + Duration::from_micros(2000))
             };
 
             if i % 2 == 1 {
