@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use chess::{Action, Board, Color, Game, GameResult};
 
 use crate::algorithms::the_algorithm::Algorithm;
+use crate::common::constants::modules::ANALYZE;
 use crate::common::utils::{self, Stats};
 
 pub(crate) struct Competition {
@@ -124,19 +125,31 @@ impl Competition {
         loop {
             let start = Instant::now();
             let side_to_move = game.side_to_move();
+            let analyze: bool;
             let mut next_action = match side_to_move {
-                Color::White => algo1.next_action(
-                    &game.current_position(),
-                    Instant::now() + Duration::from_micros(2000),
-                ),
-                Color::Black => algo2.next_action(
-                    &game.current_position(),
-                    Instant::now() + Duration::from_micros(2000),
-                ),
+                Color::White => {
+                    analyze = algo1.modules & ANALYZE != 0;
+                    algo1.next_action(
+                        &game.current_position(),
+                        Instant::now() + Duration::from_micros(2000),
+                    )
+                }
+                Color::Black => {
+                    analyze = algo1.modules & ANALYZE != 0;
+                    algo2.next_action(
+                        &game.current_position(),
+                        Instant::now() + Duration::from_micros(2000),
+                    )
+                }
             };
             let end = Instant::now();
             next_action.2.time_spent = end - start;
             next_action.2.num_plies = 1;
+
+            if analyze {
+                // Add stats field to the debug thing
+                utils::vector_push_debug!(next_action.1, next_action.2);
+            }
 
             if side_to_move == Color::Black && !reversed || side_to_move == Color::White && reversed
             {
@@ -193,7 +206,7 @@ impl Competition {
 
         let mut sum_stats = (Stats::default(), Stats::default());
 
-        for _ in 0..2 {
+        for _ in 0..10 {
             let game = utils::random_starting_position(5);
 
             let game_pair_info = self.play_game_pair(game);
@@ -209,35 +222,20 @@ impl Competition {
 
             // First game algo1
             sum_stats.0 += game_pair_info.0.stats.0;
-            // Second game algo1, etc.
+            // Second game algo1
             sum_stats.0 += game_pair_info.1.stats.0;
+            // First game algo2
             sum_stats.1 += game_pair_info.0.stats.1;
+            // Second game algo2
             sum_stats.1 += game_pair_info.1.stats.1;
         }
-        let time_per_move_algo1 = sum_stats.0.time_spent / sum_stats.0.num_plies;
-        let time_per_move_algo2 = sum_stats.1.time_spent / sum_stats.1.num_plies;
-        let avg_depth_algo1 = sum_stats.0.depth as f32 / sum_stats.0.num_plies as f32;
-        let avg_depth_algo2 = sum_stats.1.depth as f32 / sum_stats.1.num_plies as f32;
-        let avg_progress_algo1 = sum_stats.0.progress_on_next_layer / sum_stats.0.num_plies as f32;
-        let avg_progress_algo2 = sum_stats.1.progress_on_next_layer / sum_stats.1.num_plies as f32;
-        let avg_alpha_beta_breaks_algo1 =
-            sum_stats.0.alpha_beta_breaks as f32 / sum_stats.0.num_plies as f32;
-        let avg_alpha_beta_breaks_algo2 =
-            sum_stats.1.alpha_beta_breaks as f32 / sum_stats.1.num_plies as f32;
-
-        println!(
-            "Time per move Algo1: {:?}\nTime per move Algo2: {:?}",
-            time_per_move_algo1, time_per_move_algo2
-        );
-        println!(
-            "Avg depth Algo1: {:?} + {}\nAvg depth Algo2: {:?} + {}",
-            avg_depth_algo1, avg_progress_algo1, avg_depth_algo2, avg_progress_algo2
+        let avg_stats = (
+            sum_stats.0 / sum_stats.0.num_plies,
+            sum_stats.1 / sum_stats.1.num_plies,
         );
 
-        println!(
-            "A-B breaks per move Algo1: {}\nA-B breaks per move Algo2: {}",
-            avg_alpha_beta_breaks_algo1, avg_alpha_beta_breaks_algo2
-        );
+        println!("Stats for algo1: {:#?}", avg_stats.0);
+        println!("Stats for algo2: {:#?}", avg_stats.1);
 
         self.results = Some(results);
         results
@@ -290,7 +288,8 @@ impl Competition {
 
             // PROBLEM!! This will be unreliable if the algorithms have persistent data over moves
             // in the future, we will have to make new instances of the algos somehow then
-            let algo_out = if i % 2 == 1 {
+            let start = Instant::now();
+            let mut algo_out = if i % 2 == 1 {
                 // White's turn
                 self.algo1
                     .next_action(&board, Instant::now() + Duration::from_micros(2000))
@@ -298,6 +297,10 @@ impl Competition {
                 self.algo2
                     .next_action(&board, Instant::now() + Duration::from_micros(2000))
             };
+            let end = Instant::now();
+            algo_out.2.time_spent = end - start;
+            // Add stats field to the debug thing
+            utils::vector_push_debug!(algo_out.1, algo_out.2);
 
             if i % 2 == 1 {
                 println!("{}. {} ...", (i + 1) / 2, chess_move);

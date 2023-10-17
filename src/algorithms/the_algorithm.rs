@@ -6,7 +6,7 @@ use crate::common::constants::modules::*;
 use crate::common::utils::{self, Stats};
 
 pub(crate) struct Algorithm {
-    modules: u32,
+    pub(crate) modules: u32,
 }
 
 impl Algorithm {
@@ -68,16 +68,40 @@ impl Algorithm {
             );
             stats.nodes_visited += 1;
 
+            if maximise && eval.1 > best_eval.1 || !maximise && eval.1 < best_eval.1 {
+                if original && self.modules & ANALYZE != 0 {
+                    let mut vec = Vec::new();
+                    let new_best_move = chess_move.to_string();
+                    let new_best_eval = eval.1;
+                    utils::vector_push_debug!(
+                        vec,
+                        self.modules,
+                        maximise,
+                        best_eval.1,
+                        new_best_move,
+                        new_best_eval,
+                    );
+                    if let Some(Action::MakeMove(previous_best_move)) = best_eval.0 {
+                        let previous_best_move = previous_best_move.to_string();
+                        utils::vector_push_debug!(vec, previous_best_move);
+                    }
+                    best_eval.2 = Some(vec);
+                }
+
+                best_eval.1 = eval.1;
+                best_eval.0 = Some(Action::MakeMove(chess_move));
+            }
+
             if self.modules & ALPHA_BETA != 0 {
                 if maximise {
-                    if eval.1 > alpha {
-                        println!("Alpha changed. {} -> {}. Beta: {}", alpha, eval.1, beta);
-                    }
+                    // if eval.1 > alpha {
+                    // println!("Alpha changed. {} -> {}. Beta: {}", alpha, eval.1, beta);
+                    // }
                     alpha = alpha.max(eval.1);
                 } else {
-                    if eval.1 < beta {
-                        println!("Beta changed. {} -> {}. Alpha: {}", beta, eval.1, alpha);
-                    }
+                    // if eval.1 < beta {
+                    // println!("Beta changed. {} -> {}. Alpha: {}", beta, eval.1, alpha);
+                    // }
 
                     beta = beta.min(eval.1);
                 }
@@ -86,22 +110,6 @@ impl Algorithm {
                     stats.alpha_beta_breaks += 1;
                     break;
                 }
-            }
-
-            if maximise && eval.1 > best_eval.1 || !maximise && eval.1 < best_eval.1 {
-                if original && self.modules & ANALYZE != 0 {
-                    let mut vec = Vec::new();
-                    let new_best_move = chess_move.to_string();
-                    utils::vector_push_debug!(vec, maximise, best_eval.1, new_best_move, eval.1,);
-                    if let Some(Action::MakeMove(previous_best_move)) = best_eval.0 {
-                        let previous_best_move = previous_best_move.to_string();
-                        utils::vector_push_debug!(vec, previous_best_move,);
-                    }
-                    best_eval.2 = Some(vec);
-                }
-
-                best_eval.1 = eval.1;
-                best_eval.0 = Some(Action::MakeMove(chess_move));
             }
         }
 
@@ -116,7 +124,7 @@ impl Algorithm {
     ) -> (chess::Action, Vec<String>, Stats) {
         let mut stats = Stats::default();
         let out =
-            self.node_eval_recursive(board, depth, f32::MAX, f32::MIN, true, deadline, &mut stats);
+            self.node_eval_recursive(board, depth, f32::MIN, f32::MAX, true, deadline, &mut stats);
         let action = out.0.unwrap_or(Action::Resign(board.side_to_move()));
         let analyzer_data = out.2.unwrap_or_default();
         (action, analyzer_data, stats)
@@ -127,9 +135,10 @@ impl Algorithm {
         board: &Board,
         deadline: Instant,
     ) -> (chess::Action, Vec<String>, Stats) {
-        let mut deepest_complete_output = self.next_action_internal(board, 1, None);
-        let mut deepest_complete_depth = 1;
-        for depth in 2..10 {
+        const START_DEPTH: u32 = 1;
+        let mut deepest_complete_output = self.next_action_internal(board, START_DEPTH, None);
+        let mut deepest_complete_depth = START_DEPTH;
+        for depth in (deepest_complete_depth + 1)..=10 {
             let latest_output = self.next_action_internal(board, depth, Some(deadline));
             let time_since_deadline = Instant::now().saturating_duration_since(deadline);
             if !time_since_deadline.is_zero() {

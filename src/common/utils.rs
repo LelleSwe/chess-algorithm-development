@@ -1,4 +1,4 @@
-use std::ops::AddAssign;
+use std::ops::{AddAssign, Div};
 use std::time::Duration;
 
 use chess::{Board, ChessMove, Color, Game, MoveGen, Piece};
@@ -67,7 +67,7 @@ pub(crate) fn to_pgn(game: &Game) -> String {
 /// Pushes the debug string representation into this vector. Used for printing debug information
 macro_rules! vector_push_debug {
     ($vec:expr, $var:expr $(,)?) => {
-        $vec.push(format!("{} = {}", stringify!($var), $var))
+        $vec.push(format!("{} = {:?}", stringify!($var), $var))
     };
     ($vec:expr, $($var:expr),+ $(,)?) =>{
         ($($crate::common::utils::vector_push_debug!($vec, $var)),+,)
@@ -76,7 +76,7 @@ macro_rules! vector_push_debug {
 
 pub(crate) use vector_push_debug;
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone, Copy)]
 pub(crate) struct Stats {
     pub(crate) alpha_beta_breaks: u32,
     pub(crate) depth: u32,
@@ -97,4 +97,30 @@ impl AddAssign for Stats {
         self.time_spent += rhs.time_spent;
         self.progress_on_next_layer += rhs.progress_on_next_layer;
     }
+}
+
+impl Div<u32> for Stats {
+    fn div(self, rhs: u32) -> Self::Output {
+        StatsAverage {
+            alpha_beta_breaks: self.alpha_beta_breaks as f32 / rhs as f32,
+            depth: self.depth as f32 / rhs as f32,
+            leaves_visited: self.leaves_visited as f32 / rhs as f32,
+            nodes_visited: self.nodes_visited as f32 / rhs as f32,
+            num_plies: self.num_plies as f32 / rhs as f32,
+            time_spent: self.time_spent / rhs,
+            progress_on_next_layer: self.progress_on_next_layer / rhs as f32,
+        }
+    }
+
+    type Output = StatsAverage;
+}
+#[derive(Default, Debug)]
+pub(crate) struct StatsAverage {
+    pub(crate) alpha_beta_breaks: f32,
+    pub(crate) depth: f32,
+    pub(crate) leaves_visited: f32,
+    pub(crate) nodes_visited: f32,
+    pub(crate) num_plies: f32,
+    pub(crate) time_spent: Duration,
+    pub(crate) progress_on_next_layer: f32,
 }
