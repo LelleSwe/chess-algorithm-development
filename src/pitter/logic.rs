@@ -113,10 +113,15 @@ impl Competition {
         }
     }
 
-    pub(crate) fn play_game(&self, mut game: Game, reversed: bool, max_plies: usize) -> GameInfo {
+    pub(crate) fn play_game(
+        &mut self,
+        mut game: Game,
+        reversed: bool,
+        max_plies: usize,
+    ) -> GameInfo {
         let mut game_info = GameInfo::default();
-        let mut algo1 = &self.algo1;
-        let mut algo2 = &self.algo2;
+        let mut algo1 = &mut self.algo1;
+        let mut algo2 = &mut self.algo2;
         if reversed {
             mem::swap(&mut algo1, &mut algo2);
         };
@@ -191,7 +196,7 @@ impl Competition {
         game_info
     }
 
-    fn play_game_pair(&self, game: Game) -> (GameInfo, GameInfo) {
+    fn play_game_pair(&mut self, game: Game) -> (GameInfo, GameInfo) {
         let outcome1 = self.play_game(game.clone(), false, 150);
         let outcome2 = self.play_game(game, true, 150);
 
@@ -247,7 +252,7 @@ impl Competition {
         self.algo1.eval(&board) + self.algo2.eval(&board) / 2.
     }
 
-    pub(crate) fn find_game<P>(&self, predicate: P) -> Option<(GameInfo, GameInfo)>
+    pub(crate) fn find_game<P>(&mut self, predicate: P) -> Option<(GameInfo, GameInfo)>
     where
         P: Fn(&(GameInfo, GameInfo), GamePairOutcome) -> bool,
     {
@@ -271,7 +276,7 @@ impl Competition {
         }
     }
 
-    pub(crate) fn analyze_algorithm_choices<P>(&self, predicate: P)
+    pub(crate) fn analyze_algorithm_choices<P>(&mut self, predicate: P)
     where
         P: Fn(&(GameInfo, GameInfo), GamePairOutcome) -> bool,
     {

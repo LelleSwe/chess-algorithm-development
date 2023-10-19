@@ -1,5 +1,5 @@
 use std::ops::{AddAssign, Div};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chess::{Board, ChessMove, Color, Game, MoveGen, Piece};
 use rand::Rng;
@@ -115,6 +115,8 @@ impl Div<u32> for Stats {
     type Output = StatsAverage;
 }
 #[derive(Default, Debug)]
+// These fields are used through Debug
+#[allow(dead_code)]
 pub(crate) struct StatsAverage {
     pub(crate) alpha_beta_breaks: f32,
     pub(crate) depth: f32,
@@ -123,4 +125,9 @@ pub(crate) struct StatsAverage {
     pub(crate) num_plies: f32,
     pub(crate) time_spent: Duration,
     pub(crate) progress_on_next_layer: f32,
+}
+
+pub(crate) fn passed_deadline(deadline: Instant) -> bool {
+    let time_since_deadline = Instant::now().saturating_duration_since(deadline);
+    time_since_deadline.is_zero()
 }
