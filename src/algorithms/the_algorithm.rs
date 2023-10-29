@@ -12,14 +12,17 @@ pub(crate) struct Algorithm {
     pub(crate) modules: u32,
     transposition_table: HashMap<Board, TranspositionEntry>,
     pub(crate) time_per_move: Duration,
+    /// Number of times that a given board has been played
+    pub(crate) board_played_times: HashMap<Board, u32>,
 }
 
 impl Algorithm {
     pub(crate) fn new(modules: u32, time_per_move: Duration) -> Self {
         Self {
             modules,
-            transposition_table: HashMap::new(),
+            transposition_table: HashMap::with_capacity(45),
             time_per_move,
+            board_played_times: HashMap::new(),
         }
     }
 
@@ -33,6 +36,7 @@ impl Algorithm {
         original: bool,
         deadline: Option<Instant>,
         stats: &mut Stats,
+        num_extensions: u32,
     ) -> Evaluation {
         if depth == 0 {
             stats.leaves_visited += 1;
@@ -70,7 +74,7 @@ impl Algorithm {
             return best_evaluation;
         }
 
-        let mut boards = legal_moves
+        let boards = legal_moves
             .map(|chess_move| {
                 let board = board.make_move_new(chess_move);
                 let mut transposition_entry = None;
@@ -109,18 +113,35 @@ impl Algorithm {
                 return best_evaluation;
             };
 
-            let evaluation = if transposition_entry.is_some()
-                && transposition_entry.unwrap().depth >= depth
-            {
-                stats.transposition_table_accesses += 1;
-                Evaluation::new(
-                    Some(transposition_entry.unwrap().eval),
-                    transposition_entry.unwrap().next_action,
-                    None,
-                )
-            } else {
-                self.node_eval_recursive(new_board, depth - 1, alpha, beta, false, deadline, stats)
-            };
+            let extend_by =
+                if !module_enabled(self.modules, SEARCH_EXTENSIONS) || num_extensions > 3 {
+                    0
+                } else if num_legal_moves <= 3 || new_board.checkers().popcnt() != 0 {
+                    1
+                } else {
+                    0
+                };
+
+            let evaluation =
+                if transposition_entry.is_some() && transposition_entry.unwrap().depth >= depth {
+                    stats.transposition_table_accesses += 1;
+                    Evaluation::new(
+                        Some(transposition_entry.unwrap().eval),
+                        transposition_entry.unwrap().next_action,
+                        None,
+                    )
+                } else {
+                    self.node_eval_recursive(
+                        new_board,
+                        depth - 1 + extend_by,
+                        alpha,
+                        beta,
+                        false,
+                        deadline,
+                        stats,
+                        num_extensions + extend_by,
+                    )
+                };
             stats.nodes_visited += 1;
 
             // Replace best_eval if ours is better
@@ -191,31 +212,44 @@ impl Algorithm {
         best_evaluation
     }
 
-    fn next_action_internal(
+    fn next_action(
         &mut self,
         board: &Board,
         depth: u32,
         deadline: Option<Instant>,
     ) -> (Option<chess::Action>, Vec<String>, Stats) {
         let mut stats = Stats::default();
-        let out =
-            self.node_eval_recursive(board, depth, f32::MIN, f32::MAX, true, deadline, &mut stats);
+        let out = self.node_eval_recursive(
+            board,
+            depth,
+            f32::MIN,
+            f32::MAX,
+            true,
+            deadline,
+            &mut stats,
+            0,
+        );
         let analyzer_data = out.debug_data.unwrap_or_default();
         (out.next_action, analyzer_data, stats)
     }
 
-    pub(crate) fn next_action(
+    pub(crate) fn next_action_iterative_deepening(
         &mut self,
         board: &Board,
         deadline: Instant,
     ) -> (chess::Action, Vec<String>, Stats) {
+        self.board_played_times.insert(
+            *board,
+            *self.board_played_times.get(board).unwrap_or(&0) + 1,
+        );
+
         // Guarantee that at least the first layer gets done.
         const START_DEPTH: u32 = 1;
-        let mut deepest_complete_output = self.next_action_internal(board, START_DEPTH, None);
+        let mut deepest_complete_output = self.next_action(board, START_DEPTH, None);
         let mut deepest_complete_depth = START_DEPTH;
 
         for depth in (deepest_complete_depth + 1)..=10 {
-            let latest_output = self.next_action_internal(board, depth, Some(deadline));
+            let latest_output = self.next_action(board, depth, Some(deadline));
             if utils::passed_deadline(deadline) {
                 // The cancelled layer is the one with this data
                 deepest_complete_output.2.progress_on_next_layer =
@@ -229,22 +263,31 @@ impl Algorithm {
         deepest_complete_output.2.depth = deepest_complete_depth;
         deepest_complete_output.2.tt_size = self.transposition_table.len() as u32;
 
-        (
-            match deepest_complete_output.0 {
-                Some(action) => action,
-                None => match board.status() {
-                    BoardStatus::Ongoing => {
-                        println!("{}", board);
-                        println!("{:#?}", deepest_complete_output.1);
-                        panic!("No action returned by algorithm even though game is still ongoing")
-                    }
-                    BoardStatus::Stalemate => Action::DeclareDraw,
-                    BoardStatus::Checkmate => Action::Resign(board.side_to_move()),
-                },
+        let mut action = match deepest_complete_output.0 {
+            Some(action) => action,
+            None => match board.status() {
+                BoardStatus::Ongoing => {
+                    println!("{}", board);
+                    println!("{:#?}", deepest_complete_output.1);
+                    panic!("No action returned by algorithm even though game is still ongoing")
+                }
+                BoardStatus::Stalemate => Action::DeclareDraw,
+                BoardStatus::Checkmate => Action::Resign(board.side_to_move()),
             },
-            deepest_complete_output.1,
-            deepest_complete_output.2,
-        )
+        };
+
+        if let Action::MakeMove(chess_move) = action {
+            let new_board = board.make_move_new(chess_move);
+            let old_value = *self.board_played_times.get(&new_board).unwrap_or(&0);
+            if old_value >= 3 {
+                // Oh no! We should declare draw by three-fold repetition. This is not checked
+                // unless we do this.
+                action = Action::DeclareDraw;
+            }
+            self.board_played_times.insert(new_board, old_value + 1);
+        }
+
+        (action, deepest_complete_output.1, deepest_complete_output.2)
     }
 
     pub(crate) fn eval(&self, board: &Board) -> f32 {
@@ -259,6 +302,12 @@ impl Algorithm {
                 f32::MAX
             };
         }
+        if let Some(&board_played_times) = self.board_played_times.get(board) {
+            if board_played_times >= 2 {
+                // This is third time this is played. Draw by three-fold repetition
+                return 0.;
+            }
+        }
         let material_each_side = utils::material_each_side(board);
 
         // Negative when black has advantage
@@ -268,5 +317,6 @@ impl Algorithm {
 
     pub(crate) fn reset(&mut self) {
         self.transposition_table = HashMap::new();
+        self.board_played_times = HashMap::new();
     }
 }

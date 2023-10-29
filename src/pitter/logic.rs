@@ -43,8 +43,8 @@ impl GamePairOutcome {
             (Draw, BlackWin) => Algo1HalfWin,
             (Draw, Draw) => GamePairOutcome::Draw,
             // Consider changing this in the future, this is an arbitrary choice
-            (Inconclusive, _) => GamePairOutcome::InconclusiveTooLong,
-            (_, Inconclusive) => GamePairOutcome::InconclusiveTooLong,
+            (InconclusiveTooLong, _) => GamePairOutcome::InconclusiveTooLong,
+            (_, InconclusiveTooLong) => GamePairOutcome::InconclusiveTooLong,
         }
     }
 }
@@ -55,7 +55,7 @@ pub(crate) enum GameOutcome {
     BlackWin,
     Draw,
     #[default]
-    Inconclusive,
+    InconclusiveTooLong,
 }
 
 #[allow(unused_assignments)]
@@ -121,9 +121,9 @@ impl Competition {
     ) -> GameInfo {
         let mut game_info = GameInfo::default();
         let mut algo1 = &mut self.algo1;
-        // algo1.reset();
+        algo1.reset();
         let mut algo2 = &mut self.algo2;
-        // algo2.reset();
+        algo2.reset();
         if reversed {
             mem::swap(&mut algo1, &mut algo2);
         };
@@ -136,14 +136,14 @@ impl Competition {
             let mut next_action = match side_to_move {
                 Color::White => {
                     analyze = algo1.modules & ANALYZE != 0;
-                    algo1.next_action(
+                    algo1.next_action_iterative_deepening(
                         &game.current_position(),
                         Instant::now() + algo1.time_per_move,
                     )
                 }
                 Color::Black => {
                     analyze = algo1.modules & ANALYZE != 0;
-                    algo2.next_action(
+                    algo2.next_action_iterative_deepening(
                         &game.current_position(),
                         Instant::now() + algo2.time_per_move,
                     )
@@ -167,13 +167,28 @@ impl Competition {
                 game_info.stats.0 += next_action.2;
             }
 
-            match next_action.0 {
+            let mut declared_draw = false;
+            let success = match next_action.0 {
                 Action::MakeMove(chess_move) => game.make_move(chess_move),
                 Action::OfferDraw(color) => game.offer_draw(color),
                 Action::AcceptDraw => game.accept_draw(),
-                Action::DeclareDraw => game.declare_draw(),
+                Action::DeclareDraw => {
+                    // The chess crate one is really bad and wrong
+                    declared_draw = true;
+                    true
+                }
                 Action::Resign(color) => game.resign(color),
             };
+
+            if !success {
+                dbg!(utils::to_pgn(&game));
+                panic!("Algorithm made illegal action");
+            }
+
+            if declared_draw {
+                game_info.outcome = GameOutcome::Draw;
+                break;
+            }
 
             if let Some(result) = game.result() {
                 game_info.outcome = match result {
@@ -188,7 +203,7 @@ impl Competition {
                 break;
             }
             if num_plies >= max_plies {
-                game_info.outcome = GameOutcome::Inconclusive;
+                game_info.outcome = GameOutcome::InconclusiveTooLong;
                 break;
             }
             num_plies += 1
@@ -222,8 +237,8 @@ impl Competition {
                 game_pair_info.1.outcome,
             );
 
-            // println!("Game pair played.  Outcome: {:?}", combined_outcome);
-            // println!("{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
+            println!("Game pair played.  Outcome: {:?}", combined_outcome);
+            println!("{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
 
             results.register_game_outcome(combined_outcome);
 
@@ -275,6 +290,8 @@ impl Competition {
             if i > 500 {
                 return None;
             }
+            self.algo1.reset();
+            self.algo2.reset();
         }
     }
 
@@ -290,19 +307,23 @@ impl Competition {
         println!("{}", utils::to_pgn(game.0.game.as_ref().unwrap()));
         let mut board = Board::default();
 
+        self.algo1.reset();
+        self.algo2.reset();
         for chess_move in game.0.game.as_ref().unwrap().actions() {
             let Action::MakeMove(chess_move) = chess_move else {continue};
 
-            // PROBLEM!! This will be unreliable if the algorithms have persistent data over moves
-            // in the future, we will have to make new instances of the algos somehow then
             let start = Instant::now();
             let mut algo_out = if i % 2 == 1 {
                 // White's turn
-                self.algo1
-                    .next_action(&board, Instant::now() + Duration::from_micros(2000))
+                self.algo1.next_action_iterative_deepening(
+                    &board,
+                    Instant::now() + Duration::from_micros(2000),
+                )
             } else {
-                self.algo2
-                    .next_action(&board, Instant::now() + Duration::from_micros(2000))
+                self.algo2.next_action_iterative_deepening(
+                    &board,
+                    Instant::now() + Duration::from_micros(2000),
+                )
             };
             let end = Instant::now();
             algo_out.2.time_spent = end - start;
@@ -320,5 +341,8 @@ impl Competition {
             board = board.make_move_new(*chess_move);
             i += 1;
         }
+
+        dbg!(&self.algo1.board_played_times.values());
+        dbg!(&self.algo2.board_played_times.values());
     }
 }
