@@ -121,7 +121,9 @@ impl Competition {
     ) -> GameInfo {
         let mut game_info = GameInfo::default();
         let mut algo1 = &mut self.algo1;
+        // algo1.reset();
         let mut algo2 = &mut self.algo2;
+        // algo2.reset();
         if reversed {
             mem::swap(&mut algo1, &mut algo2);
         };
@@ -136,14 +138,14 @@ impl Competition {
                     analyze = algo1.modules & ANALYZE != 0;
                     algo1.next_action(
                         &game.current_position(),
-                        Instant::now() + Duration::from_micros(2000),
+                        Instant::now() + algo1.time_per_move,
                     )
                 }
                 Color::Black => {
                     analyze = algo1.modules & ANALYZE != 0;
                     algo2.next_action(
                         &game.current_position(),
-                        Instant::now() + Duration::from_micros(2000),
+                        Instant::now() + algo2.time_per_move,
                     )
                 }
             };
@@ -203,7 +205,7 @@ impl Competition {
         (outcome1, outcome2)
     }
 
-    pub(crate) fn start_competition(&mut self) -> CompetitionResults {
+    pub(crate) fn start_competition(&mut self, num_game_pairs: u32) -> CompetitionResults {
         if let Some(results) = self.results {
             return results;
         }
@@ -211,7 +213,7 @@ impl Competition {
 
         let mut sum_stats = (Stats::default(), Stats::default());
 
-        for _ in 0..10 {
+        for _ in 0..num_game_pairs {
             let game = utils::random_starting_position(5);
 
             let game_pair_info = self.play_game_pair(game);
@@ -220,8 +222,8 @@ impl Competition {
                 game_pair_info.1.outcome,
             );
 
-            println!("Game pair played.  Outcome: {:?}", combined_outcome);
-            println!("{}", utils::to_pgn(&game_pair_info.1.game.unwrap()));
+            // println!("Game pair played.  Outcome: {:?}", combined_outcome);
+            // println!("{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
 
             results.register_game_outcome(combined_outcome);
 

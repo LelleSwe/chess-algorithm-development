@@ -17,15 +17,16 @@ impl TranspositionEntry {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct Evaluation {
     pub(super) debug_data: Option<Vec<String>>,
-    pub(super) eval: f32,
+    pub(super) eval: Option<f32>,
     pub(super) next_action: Option<Action>,
 }
 
 impl Evaluation {
     pub(super) fn new(
-        eval: f32,
+        eval: Option<f32>,
         next_action: Option<Action>,
         debug_data: Option<Vec<String>>,
     ) -> Evaluation {
