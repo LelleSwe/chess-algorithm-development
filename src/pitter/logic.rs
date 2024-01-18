@@ -1,7 +1,9 @@
 use std::mem;
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use tokio::time::{Duration, Instant};
 
 use chess::{Action, Board, Color, Game, GameResult};
+use tokio::sync::Mutex;
 
 use crate::algorithms::the_algorithm::Algorithm;
 use crate::common::constants::modules::ANALYZE;
@@ -113,16 +115,11 @@ impl Competition {
         }
     }
 
-    pub(crate) fn play_game(
-        &mut self,
-        mut game: Game,
-        reversed: bool,
-        max_plies: usize,
-    ) -> GameInfo {
+    pub(crate) fn play_game(&self, mut game: Game, reversed: bool, max_plies: usize) -> GameInfo {
         let mut game_info = GameInfo::default();
-        let mut algo1 = &mut self.algo1;
+        let mut algo1 = self.algo1.clone();
         algo1.reset();
-        let mut algo2 = &mut self.algo2;
+        let mut algo2 = self.algo2.clone();
         algo2.reset();
         if reversed {
             mem::swap(&mut algo1, &mut algo2);
@@ -213,44 +210,56 @@ impl Competition {
         game_info
     }
 
-    fn play_game_pair(&mut self, game: Game) -> (GameInfo, GameInfo) {
+    fn play_game_pair(&self, game: Game) -> (GameInfo, GameInfo) {
         let outcome1 = self.play_game(game.clone(), false, 150);
         let outcome2 = self.play_game(game, true, 150);
 
         (outcome1, outcome2)
     }
 
-    pub(crate) fn start_competition(&mut self, num_game_pairs: u32) -> CompetitionResults {
+    pub(crate) async fn start_competition(self, num_game_pairs: u32) -> CompetitionResults {
         if let Some(results) = self.results {
             return results;
         }
-        let mut results = CompetitionResults::default();
+        let results = Arc::new(Mutex::new(CompetitionResults::default()));
+        let self_arc = Arc::new(self);
 
-        let mut sum_stats = (Stats::default(), Stats::default());
+        let sum_stats = Arc::new(Mutex::new((Stats::default(), Stats::default())));
 
+        let mut tasks = Vec::new();
         for _ in 0..num_game_pairs {
-            let game = utils::random_starting_position(5);
+            let results = results.clone();
+            let sum_stats = sum_stats.clone();
+            let self_arc = self_arc.clone();
+            let task = tokio::spawn(async move {
+                let game = utils::random_starting_position(5);
 
-            let game_pair_info = self.play_game_pair(game);
-            let combined_outcome = GamePairOutcome::combine_outcomes(
-                game_pair_info.0.outcome,
-                game_pair_info.1.outcome,
-            );
+                let game_pair_info = self_arc.play_game_pair(game);
+                let combined_outcome = GamePairOutcome::combine_outcomes(
+                    game_pair_info.0.outcome,
+                    game_pair_info.1.outcome,
+                );
 
-            println!("Game pair played.  Outcome: {:?}", combined_outcome);
-            println!("{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
+                println!("Game pair played.  Outcome: {:?}", combined_outcome);
+                println!("{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
+                results.lock().await.register_game_outcome(combined_outcome);
 
-            results.register_game_outcome(combined_outcome);
-
-            // First game algo1
-            sum_stats.0 += game_pair_info.0.stats.0;
-            // Second game algo1
-            sum_stats.0 += game_pair_info.1.stats.0;
-            // First game algo2
-            sum_stats.1 += game_pair_info.0.stats.1;
-            // Second game algo2
-            sum_stats.1 += game_pair_info.1.stats.1;
+                let mut locked_stats = sum_stats.lock().await;
+                // First game algo1
+                locked_stats.0 += game_pair_info.0.stats.0;
+                // Second game algo1
+                locked_stats.0 += game_pair_info.1.stats.0;
+                // First game algo2
+                locked_stats.1 += game_pair_info.0.stats.1;
+                // Second game algo2
+                locked_stats.1 += game_pair_info.1.stats.1;
+            });
+            tasks.push(task);
         }
+        for task in tasks {
+            task.await;
+        }
+        let sum_stats = sum_stats.lock().await;
         let avg_stats = (
             sum_stats.0 / sum_stats.0.num_plies,
             sum_stats.1 / sum_stats.1.num_plies,
@@ -259,16 +268,19 @@ impl Competition {
         println!("Stats for algo1: {:#?}", avg_stats.0);
         println!("Stats for algo2: {:#?}", avg_stats.1);
 
-        self.results = Some(results);
-        results
+        // Gives E0597 otherwise
+        #[allow(clippy::let_and_return)]
+        let results_copy = *results.lock().await;
+        results_copy
     }
+
+    // #[allow(dead_code)]
+    // fn get_average_eval(&self, game: &Game) -> f32 {
+    //     let board = game.current_position();
+    //     self.algo1.eval(&board) + self.algo2.eval(&board) / 2.
+    // }
 
     #[allow(dead_code)]
-    fn get_average_eval(&self, game: &Game) -> f32 {
-        let board = game.current_position();
-        self.algo1.eval(&board) + self.algo2.eval(&board) / 2.
-    }
-
     pub(crate) fn find_game<P>(&mut self, predicate: P) -> Option<(GameInfo, GameInfo)>
     where
         P: Fn(&(GameInfo, GameInfo), GamePairOutcome) -> bool,

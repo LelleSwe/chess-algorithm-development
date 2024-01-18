@@ -1,5 +1,5 @@
 use std::ops::{AddAssign, Div};
-use std::time::{Duration, Instant};
+use tokio::time::{Duration, Instant};
 
 use chess::{Board, ChessMove, Color, Game, MoveGen, Piece};
 use rand::Rng;
