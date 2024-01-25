@@ -347,22 +347,32 @@ impl Algorithm {
         //Compares piece position with an 8x8 table containing certain values. The value corresponding to the position of the piece gets added as evaluation.
         let mut position_bonus: f32 = 0.;
         if utils::module_enabled(self.modules, modules::POSITION_BONUS) {
-            fn position_bonus_calc(position_table: [f32; 64], bitboard: &BitBoard) -> f32 {
+            fn position_bonus_calc(position_table: [f32; 64], piece_bitboard: &BitBoard, color_bitboard: &BitBoard) -> f32 {
                 //Essentially, gets the dot product between a "vector" of the bitboard (containing 64 0s and 1s) and the table with position bonus constants.
                 let mut bonus: f32 = 0.;
+                //Get's the bitboard with all piece positions, and runs bitwise and for the board having one's own colors.
+                let mut piece_board: u64 = (piece_bitboard.reverse_colors().to_size(63) as u64) & (color_bitboard.reverse_colors().to_size(63) as u64);
                 for i in 0..63 {
-                    //I'm pretty sure the bitboard and position_table have opposite orientationns. Regardless, flipping the bitboard significantly increased performance. I don't know if the bitboard gets only 1 colour, or both. If both then for some reason this still improves things.
-                    bonus += ((bitboard.reverse_colors().to_size(63) as u64) >> i & 1) as f32 * position_table[i]; 
+                    //I'm pretty sure the bitboard and position_table have opposite orientationns. Regardless, flipping the bitboard significantly increased performance.
+                    bonus += (piece_board >> 1 & 1) as f32 * position_table[i]; 
                 }
                 return bonus;
             }
-            position_bonus += position_bonus_calc(position_bonus_table_pawn, board.pieces(Piece::Pawn));
-            position_bonus += position_bonus_calc(position_bonus_table_knight, board.pieces(Piece::Knight));
-            position_bonus += position_bonus_calc(position_bonus_table_rook, board.pieces(Piece::Rook));
-            position_bonus += position_bonus_calc(position_bonus_table_king, board.pieces(Piece::King));
-            position_bonus += position_bonus_calc(position_bonus_table_queen, board.pieces(Piece::Queen));
-            position_bonus += position_bonus_calc(position_bonus_table_bishop, board.pieces(Piece::Bishop));
-
+            if board.side_to_move() == Color::White {
+                position_bonus += position_bonus_calc(position_bonus_table_pawn, board.pieces(Piece::Pawn), board.color_combined(Color::White));
+                position_bonus += position_bonus_calc(position_bonus_table_knight, board.pieces(Piece::Knight), board.color_combined(Color::White));
+                position_bonus += position_bonus_calc(position_bonus_table_rook, board.pieces(Piece::Rook), board.color_combined(Color::White));
+                position_bonus += position_bonus_calc(position_bonus_table_king, board.pieces(Piece::King), board.color_combined(Color::White));
+                position_bonus += position_bonus_calc(position_bonus_table_queen, board.pieces(Piece::Queen), board.color_combined(Color::White));
+                position_bonus += position_bonus_calc(position_bonus_table_bishop, board.pieces(Piece::Bishop), board.color_combined(Color::White));
+            } else {
+                position_bonus += position_bonus_calc(position_bonus_table_pawn, board.pieces(Piece::Pawn), board.color_combined(Color::Black));
+                position_bonus += position_bonus_calc(position_bonus_table_knight, board.pieces(Piece::Knight), board.color_combined(Color::Black));
+                position_bonus += position_bonus_calc(position_bonus_table_rook, board.pieces(Piece::Rook), board.color_combined(Color::Black));
+                position_bonus += position_bonus_calc(position_bonus_table_king, board.pieces(Piece::King), board.color_combined(Color::Black));
+                position_bonus += position_bonus_calc(position_bonus_table_queen, board.pieces(Piece::Queen), board.color_combined(Color::Black));
+                position_bonus += position_bonus_calc(position_bonus_table_bishop, board.pieces(Piece::Bishop), board.color_combined(Color::Black));
+            }
         }
 
         let evaluation: f32 = controlled_squares as f32 / 20. + diff_material as f32 + position_bonus;
