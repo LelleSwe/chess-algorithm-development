@@ -16,8 +16,8 @@ mod pitter;
 async fn main() {
     let modules1 = ALPHA_BETA | POSITION_BONUS;
     let modules2 = ALPHA_BETA;
-    let time_per_move1 = Duration::from_micros(2000);
-    let time_per_move2 = Duration::from_micros(2000);
+    let time_per_move1 = Duration::from_micros(500);
+    let time_per_move2 = Duration::from_micros(500);
 
     let competition = Competition::new(
         Algorithm::new(modules1, time_per_move1),
@@ -27,6 +27,6 @@ async fn main() {
     // competition.analyze_algorithm_choices(|(game_info, _), _| {
     //     game_info.outcome == GameOutcome::InconclusiveTooLong
     // });
-    let results = competition.start_competition(500).await;
+    let results = competition.start_competition(2000).await;
     dbg!(results);
 }

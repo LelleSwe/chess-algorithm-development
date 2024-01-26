@@ -351,10 +351,10 @@ impl Algorithm {
                 //Essentially, gets the dot product between a "vector" of the bitboard (containing 64 0s and 1s) and the table with position bonus constants.
                 let mut bonus: f32 = 0.;
                 //Get's the bitboard with all piece positions, and runs bitwise and for the board having one's own colors.
-                let mut piece_board: u64 = (piece_bitboard.reverse_colors().to_size(63) as u64) & (color_bitboard.reverse_colors().to_size(63) as u64);
+                let mut piece_board: u64 = (piece_bitboard & color_bitboard).reverse_colors().to_size(0) as u64;
                 for i in 0..63 {
                     //I'm pretty sure the bitboard and position_table have opposite orientationns. Regardless, flipping the bitboard significantly increased performance.
-                    bonus += (piece_board >> 1 & 1) as f32 * position_table[i]; 
+                    bonus += (piece_board >> i & 1) as f32 * position_table[i]; 
                 }
                 return bonus;
             }
