@@ -80,6 +80,7 @@ pub(crate) use vector_push_debug;
 pub(crate) struct Stats {
     pub(crate) alpha_beta_breaks: u32,
     pub(crate) depth: u32,
+    pub(crate) max_depth: u32,
     pub(crate) leaves_visited: u32,
     pub(crate) nodes_visited: u32,
     pub(crate) num_plies: u32,
@@ -95,6 +96,7 @@ impl AddAssign for Stats {
     fn add_assign(&mut self, rhs: Self) {
         self.nodes_visited += rhs.nodes_visited;
         self.depth += rhs.depth;
+        self.max_depth += rhs.max_depth;
         self.leaves_visited += rhs.leaves_visited;
         self.alpha_beta_breaks += rhs.alpha_beta_breaks;
         self.num_plies += rhs.num_plies;
@@ -112,6 +114,7 @@ impl Div<u32> for Stats {
         StatsAverage {
             alpha_beta_breaks: self.alpha_beta_breaks as f32 / rhs as f32,
             depth: self.depth as f32 / rhs as f32,
+            max_depth: self.max_depth as f32 / rhs as f32,
             leaves_visited: self.leaves_visited as f32 / rhs as f32,
             nodes_visited: self.nodes_visited as f32 / rhs as f32,
             num_plies: self.num_plies as f32 / rhs as f32,
@@ -132,6 +135,7 @@ impl Div<u32> for Stats {
 pub(crate) struct StatsAverage {
     pub(crate) alpha_beta_breaks: f32,
     pub(crate) depth: f32,
+    pub(crate) max_depth: f32,
     pub(crate) leaves_visited: f32,
     pub(crate) nodes_visited: f32,
     pub(crate) num_plies: f32,

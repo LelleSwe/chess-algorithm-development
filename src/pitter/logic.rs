@@ -240,8 +240,10 @@ impl Competition {
                     game_pair_info.1.outcome,
                 );
 
+                //Whether the game just played should be printed in console.
                 //println!("Game pair played.  Outcome: {:?}", combined_outcome);
                 //println!("{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
+
                 results.lock().await.register_game_outcome(combined_outcome);
 
                 let mut locked_stats = sum_stats.lock().await;

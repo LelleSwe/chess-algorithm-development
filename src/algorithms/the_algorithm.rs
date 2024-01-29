@@ -1,5 +1,6 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, cmp};
 use tokio::time::{Duration, Instant};
+use rustc_hash::FxHasher;
 
 use chess::{Action, Board, BoardStatus, ChessMove, Color, MoveGen, Piece, BitBoard};
 
@@ -15,6 +16,7 @@ pub(crate) struct Algorithm {
     pub(crate) time_per_move: Duration,
     /// Number of times that a given board has been played
     pub(crate) board_played_times: HashMap<Board, u32>,
+    pub(crate) pawn_hash: HashMap<BitBoard, f32>
 }
 
 impl Algorithm {
@@ -24,6 +26,7 @@ impl Algorithm {
             transposition_table: HashMap::with_capacity(45),
             time_per_move,
             board_played_times: HashMap::new(),
+            pawn_hash: HashMap::new()
         }
     }
 
@@ -40,6 +43,8 @@ impl Algorithm {
         num_extensions: u32,
         board_played_times_prediction: &mut HashMap<Board, u32>,
     ) -> Evaluation {
+
+
         if depth == 0 {
             stats.leaves_visited += 1;
             let eval = self.eval(board, board_played_times_prediction);
@@ -67,14 +72,17 @@ impl Algorithm {
 
             // If we arrive at here and it is checkmate, then we know that the side playing
             // has been checkmated.
-
+             
             best_evaluation.eval = Some(if board.side_to_move() == Color::White {
                 f32::MIN
             } else {
                 f32::MAX
             });
             return best_evaluation;
-        }
+            }
+            
+            //best_evaluation.eval = Some(f32::MIN);
+
 
         let mut boards = legal_moves
             .map(|chess_move| {
@@ -114,6 +122,11 @@ impl Algorithm {
                     (i.saturating_sub(1)) as f32 / num_legal_moves as f32;
                 return best_evaluation;
             };
+
+            if depth > stats.max_depth {
+                stats.max_depth = depth;
+            }
+
             if module_enabled(self.modules, SKIP_BAD_MOVES)
                 && i as f32 > num_legal_moves as f32 * 1.
             {
@@ -159,6 +172,7 @@ impl Algorithm {
                     );
                     evaluation
                 };
+
             stats.nodes_visited += 1;
 
             // Replace best_eval if ours is better
@@ -309,7 +323,7 @@ impl Algorithm {
     }
 
     pub(crate) fn eval(
-        &self,
+        &mut self,
         board: &Board,
         board_played_times_prediction: &HashMap<Board, u32>,
     ) -> f32 {
@@ -351,10 +365,9 @@ impl Algorithm {
                 //Essentially, gets the dot product between a "vector" of the bitboard (containing 64 0s and 1s) and the table with position bonus constants.
                 let mut bonus: f32 = 0.;
                 //Get's the bitboard with all piece positions, and runs bitwise and for the board having one's own colors.
-                let mut piece_board: u64 = (piece_bitboard & color_bitboard).reverse_colors().to_size(0) as u64;
                 for i in 0..63 {
-                    //I'm pretty sure the bitboard and position_table have opposite orientationns. Regardless, flipping the bitboard significantly increased performance.
-                    bonus += (piece_board >> i & 1) as f32 * position_table[i]; 
+                    //The position table and bitboard are flipped vertically, hence .reverse_colors(). Reverse colors is for some reason faster than replacing i with 56-i+2*(i%8).
+                    bonus += ((piece_bitboard & color_bitboard).reverse_colors().to_size(0) >> i & 1) as f32 * position_table[i]; 
                 }
                 return bonus;
             }
@@ -375,12 +388,54 @@ impl Algorithm {
             }
         }
 
-        let evaluation: f32 = controlled_squares as f32 / 20. + diff_material as f32 + position_bonus;
+        let mut pawn_structure: f32 = 0.;
+        if utils::module_enabled(self.modules, modules::PAWN_STRUCTURE) {
+            fn pawn_structure_calc(all_pawn_bitboard: &BitBoard, color_bitboard: &BitBoard, all_king_bitboard: &BitBoard) -> f32 {
+                let mut bonus: f32 = 0.;
+                let pawn_bitboard: usize = (all_pawn_bitboard & color_bitboard).to_size(0);
+                let king_bitboard: usize = (all_king_bitboard & color_bitboard).to_size(0);
+                //pawn chain, awarding 0.5 eval for each pawn protected by another pawn.
+                bonus += 0.5*((pawn_bitboard & (pawn_bitboard << 7)).count_ones() + (pawn_bitboard & (pawn_bitboard << 9)).count_ones()) as f32;
+
+                //stacked pawns. -0.5 points per rank containing >1 pawns. By taking the pawn bitboard and operating bitwise and for another bitboard (integer) where the leftmost rank is filled. This returns 
+                for i in 0..7 {
+                    //constant 9259542123273814144 = 0x8080808080808080, or the entire first rank.
+                    bonus -= 0.5*cmp::max((pawn_bitboard & (0x8080808080808080 >> i)).count_ones() as i64 - 1, 0) as f32;
+                }
+
+                //king safety. Outer 3 pawns get +1 eval bonus per pawn if king is behind them. King position required is either ..X..... or ......X.
+                if (king_bitboard & 0x2).count_ones() > 0 {
+                    bonus += (pawn_bitboard & 0x7).count_ones() as f32;
+                }
+                if (king_bitboard & 0x20).count_ones() > 0 {
+                    bonus += (pawn_bitboard & 0xE000).count_ones() as f32;
+                }
+                return bonus;
+            }
+
+            //Because pawn moves (according to chessprogramming.org) are rarely performed, hashing them is useful.
+            if board.side_to_move() == Color::White {
+                let pawn_bitboard: BitBoard = board.pieces(Piece::Pawn) & board.color_combined(Color::White);
+                if !self.pawn_hash.contains_key(&pawn_bitboard) {
+                    self.pawn_hash.insert(pawn_bitboard, pawn_structure_calc(board.pieces(Piece::Pawn), board.color_combined(Color::White), board.pieces(Piece::King)));
+                }
+                pawn_structure = *self.pawn_hash.get(&pawn_bitboard).unwrap();
+            } else {
+                let pawn_bitboard: BitBoard = board.pieces(Piece::Pawn) & board.color_combined(Color::Black);
+                if !self.pawn_hash.contains_key(&pawn_bitboard) {
+                    self.pawn_hash.insert(pawn_bitboard, pawn_structure_calc(board.pieces(Piece::Pawn), board.color_combined(Color::Black), board.pieces(Piece::King)));
+                }
+                pawn_structure = *self.pawn_hash.get(&pawn_bitboard).unwrap();
+            }
+        }
+
+        let evaluation: f32 = controlled_squares as f32 / 20. + diff_material as f32 + position_bonus + pawn_structure;
         return evaluation
     }
 
     pub(crate) fn reset(&mut self) {
         self.transposition_table = HashMap::new();
         self.board_played_times = HashMap::new();
+        self.pawn_hash = HashMap::new();
     }
 }

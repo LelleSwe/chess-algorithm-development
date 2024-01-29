@@ -6,6 +6,7 @@ pub(crate) mod modules {
     pub(crate) const SQUARE_CONTROL_METRIC: u32 = 0b10000;
     pub(crate) const SKIP_BAD_MOVES: u32 = 0b100000;
     pub(crate) const POSITION_BONUS: u32 = 0b1000000;
+    pub(crate) const PAWN_STRUCTURE: u32 = 0b10000000;
 }
 
 //POSITION_BONUS TABLES
@@ -73,6 +74,6 @@ pub(crate) const position_bonus_table_king: [f32; 64] = [
     0., 0., 0., 0., 0., 0., 0., 0.,
     0., 0., 0., 0., 0., 0., 0., 0.,
     0., 0., 0., 0., 0., 0., 0., 0.,
-    0.1, 0.3, 0.3, 0., 0., 0.3, 0.3, 0.1
+    0.1, 0.3, 0.3, 0., 0., 0., 0.3, 0.1
 ];
 }
