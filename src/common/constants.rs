@@ -11,7 +11,7 @@ pub(crate) mod modules {
 
 //POSITION_BONUS TABLES
 pub(crate) mod position_bonus_tables {
-pub(crate) const position_bonus_table_pawn: [f32; 64] = [
+pub(crate) const POSITION_BONUS_TABLE_PAWN: [f32; 64] = [
     0., 0., 0., 0., 0., 0., 0., 0.,
     1., 1., 1., 1., 1., 1., 1., 1.,
     0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
@@ -22,7 +22,7 @@ pub(crate) const position_bonus_table_pawn: [f32; 64] = [
     0., 0., 0., 0., 0., 0., 0., 0.
 ];
 
-pub(crate) const position_bonus_table_knight: [f32; 64] = [
+pub(crate) const POSITION_BONUS_TABLE_KNIGHT: [f32; 64] = [
     0., 0., 0., 0., 0., 0., 0., 0.,
     0., 0., 0., 0., 0., 0., 0., 0.,
     0., 0., 0., 0.2, 0.2, 0., 0., 0.,
@@ -33,7 +33,7 @@ pub(crate) const position_bonus_table_knight: [f32; 64] = [
     0., 0., 0., 0., 0., 0., 0., 0.
 ];
 
-pub(crate) const position_bonus_table_rook: [f32; 64] = [
+pub(crate) const POSITION_BONUS_TABLE_ROOK: [f32; 64] = [
     0., 0., 0.1, 0.1, 0.1, 0.1, 0., 0.,
     0., 0., 0., 0., 0., 0., 0., 0.,
     0., 0., 0., 0., 0., 0., 0., 0.,
@@ -44,7 +44,7 @@ pub(crate) const position_bonus_table_rook: [f32; 64] = [
     0., 0., 0.1, 0.1, 0.1, 0.1, 0., 0.
 ];
 
-pub(crate) const position_bonus_table_bishop: [f32; 64] = [
+pub(crate) const POSITION_BONUS_TABLE_BISHOP: [f32; 64] = [
     0., 0., 0., 0., 0., 0., 0., 0.,
     0., 0., 0., 0., 0., 0., 0., 0.,
     0., 0., 0., 0., 0., 0., 0., 0.,
@@ -55,7 +55,7 @@ pub(crate) const position_bonus_table_bishop: [f32; 64] = [
     0., 0.05, 0., 0., 0., 0., 0.05, 0.
 ];
 
-pub(crate) const position_bonus_table_queen: [f32; 64] = [
+pub(crate) const POSITION_BONUS_TABLE_QUEEN: [f32; 64] = [
     0., 0., 0., 0., 0., 0., 0., 0.,
     0., 0., 0., 0., 0., 0., 0., 0.,
     0., 0., 0.1, 0.1, 0.1, 0.1, 0., 0.,
@@ -66,7 +66,7 @@ pub(crate) const position_bonus_table_queen: [f32; 64] = [
     0., 0., 0., 0., 0., 0., 0., 0.
 ];
 
-pub(crate) const position_bonus_table_king: [f32; 64] = [
+pub(crate) const POSITION_BONUS_TABLE_KING: [f32; 64] = [
     0., 0., 0., 0., 0., 0., 0., 0.,
     0., 0., 0., 0., 0., 0., 0., 0.,
     0., 0., 0., 0., 0., 0., 0., 0.,

@@ -16,10 +16,10 @@ mod pitter;
 #[tokio::main]
 async fn main() {
     //ALPHA_BETA | ANALYZE | SEARCH_EXTENSIONS | SKIP_BAD_MOVES | SQUARE_CONTROL_METRIC | TRANSPOSITION_TABLE | POSITION_BONUS | PAWN_STRUCTURE
-    let modules1 = ALPHA_BETA | PAWN_STRUCTURE;
+    let modules1 = ALPHA_BETA | POSITION_BONUS;
     let modules2 = ALPHA_BETA;
-    let time_per_move1 = Duration::from_micros(12000);
-    let time_per_move2 = Duration::from_micros(12000);
+    let time_per_move1 = Duration::from_micros(2000);
+    let time_per_move2 = Duration::from_micros(2000);
 
     let competition = Competition::new(
         Algorithm::new(modules1, time_per_move1),

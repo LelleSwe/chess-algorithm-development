@@ -16,7 +16,14 @@ pub(crate) struct Algorithm {
     pub(crate) time_per_move: Duration,
     /// Number of times that a given board has been played
     pub(crate) board_played_times: HashMap<Board, u32>,
-    pub(crate) pawn_hash: HashMap<BitBoard, f32>
+    pub(crate) pawn_hash: HashMap<BitBoard, f32>,
+    pub(crate) position_pawn_hash: HashMap<BitBoard, f32>,
+    pub(crate) position_rook_hash: HashMap<BitBoard, f32>,
+    pub(crate) position_king_hash: HashMap<BitBoard, f32>,
+    pub(crate) position_queen_hash: HashMap<BitBoard, f32>,
+    pub(crate) position_knight_hash: HashMap<BitBoard, f32>,
+    pub(crate) position_bishop_hash: HashMap<BitBoard, f32>
+
 }
 
 impl Algorithm {
@@ -26,7 +33,13 @@ impl Algorithm {
             transposition_table: HashMap::with_capacity(45),
             time_per_move,
             board_played_times: HashMap::new(),
-            pawn_hash: HashMap::new()
+            pawn_hash: HashMap::new(),
+            position_knight_hash: HashMap::new(),
+            position_pawn_hash: HashMap::new(),
+            position_rook_hash: HashMap::new(),
+            position_bishop_hash: HashMap::new(),
+            position_queen_hash: HashMap::new(),
+            position_king_hash: HashMap::new(),
         }
     }
 
@@ -371,20 +384,28 @@ impl Algorithm {
                 }
                 return bonus;
             }
+
+            fn in_hash_map(bitboard: &BitBoard, color_bitboard: &BitBoard, position_table: [f32; 64], position_hash_map: &mut HashMap::<BitBoard, f32>) -> f32 {
+                if !position_hash_map.contains_key(&(bitboard & color_bitboard)) {
+                    position_hash_map.insert(bitboard & color_bitboard, position_bonus_calc(position_table, bitboard, color_bitboard));
+                }
+                return *position_hash_map.get(&(bitboard & color_bitboard)).unwrap();
+            }
+
             if board.side_to_move() == Color::White {
-                position_bonus += position_bonus_calc(position_bonus_table_pawn, board.pieces(Piece::Pawn), board.color_combined(Color::White));
-                position_bonus += position_bonus_calc(position_bonus_table_knight, board.pieces(Piece::Knight), board.color_combined(Color::White));
-                position_bonus += position_bonus_calc(position_bonus_table_rook, board.pieces(Piece::Rook), board.color_combined(Color::White));
-                position_bonus += position_bonus_calc(position_bonus_table_king, board.pieces(Piece::King), board.color_combined(Color::White));
-                position_bonus += position_bonus_calc(position_bonus_table_queen, board.pieces(Piece::Queen), board.color_combined(Color::White));
-                position_bonus += position_bonus_calc(position_bonus_table_bishop, board.pieces(Piece::Bishop), board.color_combined(Color::White));
+                position_bonus += in_hash_map(board.pieces(Piece::Pawn), board.color_combined(Color::White), POSITION_BONUS_TABLE_PAWN, &mut self.position_pawn_hash);
+                position_bonus += in_hash_map(board.pieces(Piece::Rook), board.color_combined(Color::White), POSITION_BONUS_TABLE_ROOK, &mut self.position_rook_hash);
+                position_bonus += in_hash_map(board.pieces(Piece::King), board.color_combined(Color::White), POSITION_BONUS_TABLE_KING, &mut self.position_king_hash);
+                position_bonus += in_hash_map(board.pieces(Piece::Queen), board.color_combined(Color::White), POSITION_BONUS_TABLE_QUEEN, &mut self.position_queen_hash);
+                position_bonus += in_hash_map(board.pieces(Piece::Bishop), board.color_combined(Color::White), POSITION_BONUS_TABLE_BISHOP, &mut self.position_bishop_hash);
+                position_bonus += in_hash_map(board.pieces(Piece::Knight), board.color_combined(Color::White), POSITION_BONUS_TABLE_KNIGHT, &mut self.position_knight_hash);
             } else {
-                position_bonus += position_bonus_calc(position_bonus_table_pawn, board.pieces(Piece::Pawn), board.color_combined(Color::Black));
-                position_bonus += position_bonus_calc(position_bonus_table_knight, board.pieces(Piece::Knight), board.color_combined(Color::Black));
-                position_bonus += position_bonus_calc(position_bonus_table_rook, board.pieces(Piece::Rook), board.color_combined(Color::Black));
-                position_bonus += position_bonus_calc(position_bonus_table_king, board.pieces(Piece::King), board.color_combined(Color::Black));
-                position_bonus += position_bonus_calc(position_bonus_table_queen, board.pieces(Piece::Queen), board.color_combined(Color::Black));
-                position_bonus += position_bonus_calc(position_bonus_table_bishop, board.pieces(Piece::Bishop), board.color_combined(Color::Black));
+                position_bonus += in_hash_map(board.pieces(Piece::Pawn), board.color_combined(Color::Black), POSITION_BONUS_TABLE_PAWN, &mut self.position_pawn_hash);
+                position_bonus += in_hash_map(board.pieces(Piece::Rook), board.color_combined(Color::Black), POSITION_BONUS_TABLE_ROOK, &mut self.position_rook_hash);
+                position_bonus += in_hash_map(board.pieces(Piece::King), board.color_combined(Color::Black), POSITION_BONUS_TABLE_KING, &mut self.position_king_hash);
+                position_bonus += in_hash_map(board.pieces(Piece::Queen), board.color_combined(Color::Black), POSITION_BONUS_TABLE_QUEEN, &mut self.position_queen_hash);
+                position_bonus += in_hash_map(board.pieces(Piece::Bishop), board.color_combined(Color::Black), POSITION_BONUS_TABLE_BISHOP, &mut self.position_bishop_hash);
+                position_bonus += in_hash_map(board.pieces(Piece::Knight), board.color_combined(Color::Black), POSITION_BONUS_TABLE_KNIGHT, &mut self.position_knight_hash);
             }
         }
 
@@ -397,19 +418,14 @@ impl Algorithm {
                 //pawn chain, awarding 0.5 eval for each pawn protected by another pawn.
                 bonus += 0.5*((pawn_bitboard & (pawn_bitboard << 7)).count_ones() + (pawn_bitboard & (pawn_bitboard << 9)).count_ones()) as f32;
 
-                //stacked pawns. -0.5 points per rank containing >1 pawns. By taking the pawn bitboard and operating bitwise and for another bitboard (integer) where the leftmost rank is filled. This returns 
+                //stacked pawns. -0.5 points per rank containing >1 pawns. By taking the pawn bitboard and operating bitwise AND for another bitboard (integer) where the leftmost rank is filled. This returns all pawns in that rank. By bitshifting we can choose rank. Additionally by counting we get number of pawns. We then remove 1 as we only want to know if there are >1 pawn. If there is, subtract 0.5 points per extra pawn.
                 for i in 0..7 {
                     //constant 9259542123273814144 = 0x8080808080808080, or the entire first rank.
                     bonus -= 0.5*cmp::max((pawn_bitboard & (0x8080808080808080 >> i)).count_ones() as i64 - 1, 0) as f32;
                 }
 
                 //king safety. Outer 3 pawns get +1 eval bonus per pawn if king is behind them. King position required is either ..X..... or ......X.
-                if (king_bitboard & 0x2).count_ones() > 0 {
-                    bonus += (pawn_bitboard & 0x7).count_ones() as f32;
-                }
-                if (king_bitboard & 0x20).count_ones() > 0 {
-                    bonus += (pawn_bitboard & 0xE000).count_ones() as f32;
-                }
+                bonus += ((king_bitboard & 0x2).count_ones() * (pawn_bitboard & 0x7).count_ones() + (king_bitboard & 0x20).count_ones() * (pawn_bitboard & 0xE000).count_ones()) as f32;
                 return bonus;
             }
 
@@ -437,5 +453,11 @@ impl Algorithm {
         self.transposition_table = HashMap::new();
         self.board_played_times = HashMap::new();
         self.pawn_hash = HashMap::new();
+        self.position_pawn_hash = HashMap::new();
+        self.position_king_hash = HashMap::new();
+        self.position_queen_hash = HashMap::new();
+        self.position_bishop_hash = HashMap::new();
+        self.position_rook_hash = HashMap::new();
+        self.position_knight_hash = HashMap::new();
     }
 }
