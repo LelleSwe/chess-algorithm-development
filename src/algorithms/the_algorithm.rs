@@ -4,7 +4,7 @@ use rustc_hash::FxHasher;
 
 use chess::{Action, Board, BoardStatus, ChessMove, Color, MoveGen, Piece, BitBoard};
 
-use crate::common::constants::{modules::{self, *}, position_bonus_tables::*};
+use crate::common::constants::{modules::{self, *}, naive_psqt_tables::*, tapered_pesto_psqt_tables::*};
 use crate::common::utils::{self, module_enabled, Stats};
 
 use super::utils::{Evaluation, TranspositionEntry};
@@ -17,12 +17,12 @@ pub(crate) struct Algorithm {
     /// Number of times that a given board has been played
     pub(crate) board_played_times: HashMap<Board, u32>,
     pub(crate) pawn_hash: HashMap<BitBoard, f32>,
-    pub(crate) position_pawn_hash: HashMap<BitBoard, f32>,
-    pub(crate) position_rook_hash: HashMap<BitBoard, f32>,
-    pub(crate) position_king_hash: HashMap<BitBoard, f32>,
-    pub(crate) position_queen_hash: HashMap<BitBoard, f32>,
-    pub(crate) position_knight_hash: HashMap<BitBoard, f32>,
-    pub(crate) position_bishop_hash: HashMap<BitBoard, f32>
+    pub(crate) naive_psqt_pawn_hash: HashMap<BitBoard, f32>,
+    pub(crate) naive_psqt_rook_hash: HashMap<BitBoard, f32>,
+    pub(crate) naive_psqt_king_hash: HashMap<BitBoard, f32>,
+    pub(crate) naive_psqt_queen_hash: HashMap<BitBoard, f32>,
+    pub(crate) naive_psqt_knight_hash: HashMap<BitBoard, f32>,
+    pub(crate) naive_psqt_bishop_hash: HashMap<BitBoard, f32>
 
 }
 
@@ -34,12 +34,12 @@ impl Algorithm {
             time_per_move,
             board_played_times: HashMap::new(),
             pawn_hash: HashMap::new(),
-            position_knight_hash: HashMap::new(),
-            position_pawn_hash: HashMap::new(),
-            position_rook_hash: HashMap::new(),
-            position_bishop_hash: HashMap::new(),
-            position_queen_hash: HashMap::new(),
-            position_king_hash: HashMap::new(),
+            naive_psqt_knight_hash: HashMap::new(),
+            naive_psqt_pawn_hash: HashMap::new(),
+            naive_psqt_rook_hash: HashMap::new(),
+            naive_psqt_bishop_hash: HashMap::new(),
+            naive_psqt_queen_hash: HashMap::new(),
+            naive_psqt_king_hash: HashMap::new(),
         }
     }
 
@@ -60,7 +60,7 @@ impl Algorithm {
 
         if depth == 0 {
             stats.leaves_visited += 1;
-            let eval = self.eval(board, board_played_times_prediction);
+            let eval = self.eval(board, board_played_times_prediction, 0.);
             // if module_enabled(self.modules, TRANSPOSITION_TABLE) {
             //     let start = Instant::now();
             //     self.transposition_table
@@ -330,6 +330,10 @@ impl Algorithm {
                 action = Action::DeclareDraw;
             }
             self.board_played_times.insert(new_board, old_value + 1);
+
+            if utils::module_enabled(self.modules, modules::TAPERED_INCREMENTAL_PESTO_PSQT) {
+
+            }
         }
 
         (action, deepest_complete_output.1, deepest_complete_output.2)
@@ -339,6 +343,7 @@ impl Algorithm {
         &mut self,
         board: &Board,
         board_played_times_prediction: &HashMap<Board, u32>,
+        incremental_eval: f32,
     ) -> f32 {
         let board_status = board.status();
         if board_status == BoardStatus::Stalemate {
@@ -372,40 +377,73 @@ impl Algorithm {
         }
 
         //Compares piece position with an 8x8 table containing certain values. The value corresponding to the position of the piece gets added as evaluation.
-        let mut position_bonus: f32 = 0.;
-        if utils::module_enabled(self.modules, modules::POSITION_BONUS) {
-            fn position_bonus_calc(position_table: [f32; 64], piece_bitboard: &BitBoard, color_bitboard: &BitBoard) -> f32 {
-                //Essentially, gets the dot product between a "vector" of the bitboard (containing 64 0s and 1s) and the table with position bonus constants.
+        let mut naive_psqt: f32 = 0.;
+        if utils::module_enabled(self.modules, modules::NAIVE_PSQT) {
+            fn naive_psqt_calc(naive_psqt_table: [f32; 64], piece_bitboard: &BitBoard, color_bitboard: &BitBoard) -> f32 {
+                //Essentially, gets the dot product between a "vector" of the bitboard (containing 64 0s and 1s) and the table with NAIVE_PSQT bonus constants.
                 let mut bonus: f32 = 0.;
-                //Get's the bitboard with all piece positions, and runs bitwise and for the board having one's own colors.
+                //Get's the bitboard with all piece NAIVE_PSQTs, and runs bitwise and for the board having one's own colors.
                 for i in 0..63 {
-                    //The position table and bitboard are flipped vertically, hence .reverse_colors(). Reverse colors is for some reason faster than replacing i with 56-i+2*(i%8).
-                    bonus += ((piece_bitboard & color_bitboard).reverse_colors().to_size(0) >> i & 1) as f32 * position_table[i]; 
+                    //The naive_psqt table and bitboard are flipped vertically, hence .reverse_colors(). Reverse colors is for some reason faster than replacing i with 56-i+2*(i%8).
+                    bonus += ((piece_bitboard & color_bitboard).reverse_colors().to_size(0) >> i & 1) as f32 * naive_psqt_table[i]; 
                 }
                 return bonus;
             }
 
-            fn in_hash_map(bitboard: &BitBoard, color_bitboard: &BitBoard, position_table: [f32; 64], position_hash_map: &mut HashMap::<BitBoard, f32>) -> f32 {
-                if !position_hash_map.contains_key(&(bitboard & color_bitboard)) {
-                    position_hash_map.insert(bitboard & color_bitboard, position_bonus_calc(position_table, bitboard, color_bitboard));
+            //Utilizes hashmaps so we don't have to recalculate the entire bonus for all pieces every move. This is slightly faster.
+            fn in_hash_map(bitboard: &BitBoard, color_bitboard: &BitBoard, naive_psqt_table: [f32; 64], naive_psqt_hash_map: &mut HashMap::<BitBoard, f32>) -> f32 {
+                if !naive_psqt_hash_map.contains_key(&(bitboard & color_bitboard)) {
+                    naive_psqt_hash_map.insert(bitboard & color_bitboard, naive_psqt_calc(naive_psqt_table, bitboard, color_bitboard));
                 }
-                return *position_hash_map.get(&(bitboard & color_bitboard)).unwrap();
+                return *naive_psqt_hash_map.get(&(bitboard & color_bitboard)).unwrap();
             }
 
             if board.side_to_move() == Color::White {
-                position_bonus += in_hash_map(board.pieces(Piece::Pawn), board.color_combined(Color::White), POSITION_BONUS_TABLE_PAWN, &mut self.position_pawn_hash);
-                position_bonus += in_hash_map(board.pieces(Piece::Rook), board.color_combined(Color::White), POSITION_BONUS_TABLE_ROOK, &mut self.position_rook_hash);
-                position_bonus += in_hash_map(board.pieces(Piece::King), board.color_combined(Color::White), POSITION_BONUS_TABLE_KING, &mut self.position_king_hash);
-                position_bonus += in_hash_map(board.pieces(Piece::Queen), board.color_combined(Color::White), POSITION_BONUS_TABLE_QUEEN, &mut self.position_queen_hash);
-                position_bonus += in_hash_map(board.pieces(Piece::Bishop), board.color_combined(Color::White), POSITION_BONUS_TABLE_BISHOP, &mut self.position_bishop_hash);
-                position_bonus += in_hash_map(board.pieces(Piece::Knight), board.color_combined(Color::White), POSITION_BONUS_TABLE_KNIGHT, &mut self.position_knight_hash);
+                naive_psqt += in_hash_map(board.pieces(Piece::Pawn), board.color_combined(Color::White), NAIVE_PSQT_TABLE_PAWN, &mut self.naive_psqt_pawn_hash);
+                naive_psqt += in_hash_map(board.pieces(Piece::Rook), board.color_combined(Color::White), NAIVE_PSQT_TABLE_ROOK, &mut self.naive_psqt_rook_hash);
+                naive_psqt += in_hash_map(board.pieces(Piece::King), board.color_combined(Color::White), NAIVE_PSQT_TABLE_KING, &mut self.naive_psqt_king_hash);
+                naive_psqt += in_hash_map(board.pieces(Piece::Queen), board.color_combined(Color::White), NAIVE_PSQT_TABLE_QUEEN, &mut self.naive_psqt_queen_hash);
+                naive_psqt += in_hash_map(board.pieces(Piece::Bishop), board.color_combined(Color::White), NAIVE_PSQT_TABLE_BISHOP, &mut self.naive_psqt_bishop_hash);
+                naive_psqt += in_hash_map(board.pieces(Piece::Knight), board.color_combined(Color::White), NAIVE_PSQT_TABLE_KNIGHT, &mut self.naive_psqt_knight_hash);
             } else {
-                position_bonus += in_hash_map(board.pieces(Piece::Pawn), board.color_combined(Color::Black), POSITION_BONUS_TABLE_PAWN, &mut self.position_pawn_hash);
-                position_bonus += in_hash_map(board.pieces(Piece::Rook), board.color_combined(Color::Black), POSITION_BONUS_TABLE_ROOK, &mut self.position_rook_hash);
-                position_bonus += in_hash_map(board.pieces(Piece::King), board.color_combined(Color::Black), POSITION_BONUS_TABLE_KING, &mut self.position_king_hash);
-                position_bonus += in_hash_map(board.pieces(Piece::Queen), board.color_combined(Color::Black), POSITION_BONUS_TABLE_QUEEN, &mut self.position_queen_hash);
-                position_bonus += in_hash_map(board.pieces(Piece::Bishop), board.color_combined(Color::Black), POSITION_BONUS_TABLE_BISHOP, &mut self.position_bishop_hash);
-                position_bonus += in_hash_map(board.pieces(Piece::Knight), board.color_combined(Color::Black), POSITION_BONUS_TABLE_KNIGHT, &mut self.position_knight_hash);
+                naive_psqt += in_hash_map(board.pieces(Piece::Pawn), board.color_combined(Color::Black), NAIVE_PSQT_TABLE_PAWN, &mut self.naive_psqt_pawn_hash);
+                naive_psqt += in_hash_map(board.pieces(Piece::Rook), board.color_combined(Color::Black), NAIVE_PSQT_TABLE_ROOK, &mut self.naive_psqt_rook_hash);
+                naive_psqt += in_hash_map(board.pieces(Piece::King), board.color_combined(Color::Black), NAIVE_PSQT_TABLE_KING, &mut self.naive_psqt_king_hash);
+                naive_psqt += in_hash_map(board.pieces(Piece::Queen), board.color_combined(Color::Black), NAIVE_PSQT_TABLE_QUEEN, &mut self.naive_psqt_queen_hash);
+                naive_psqt += in_hash_map(board.pieces(Piece::Bishop), board.color_combined(Color::Black), NAIVE_PSQT_TABLE_BISHOP, &mut self.naive_psqt_bishop_hash);
+                naive_psqt += in_hash_map(board.pieces(Piece::Knight), board.color_combined(Color::Black), NAIVE_PSQT_TABLE_KNIGHT, &mut self.naive_psqt_knight_hash);
+            }
+        }
+
+        let mut tapered_pesto: f32 = 0.;
+        if utils::module_enabled(self.modules, modules::TAPERED_EVERY_PRESTO_PSQT) {
+            fn tapered_psqt_calc(piece_bitboard: &BitBoard, color_bitboard: &BitBoard, material: (u32, u32), tapered_table_mg: [f32; 64], tapered_table_eg: [f32; 64]) -> f32 {
+                //Essentially, gets the dot product between a "vector" of the bitboard (containing 64 0s and 1s) and the table with NAIVE_PSQT bonus constants.
+                let mut bonus: f32 = 0.;
+                //Get's the bitboard with all piece NAIVE_PSQTs, and runs bitwise and for the board having one's own colors.
+                for i in 0..63 {
+                    //The psqt tables and bitboards are flipped vertically, hence .reverse_colors(). Reverse colors is for some reason faster than replacing i with 56-i+2*(i%8).
+                    //By being tapered, it means that we have an opening + middlgame and an endgame PSQT, and we (hopefully?) linerarly transition from one to the other, depending on material value.
+                    bonus += ((piece_bitboard & color_bitboard).reverse_colors().to_size(0) >> i & 1) as f32 * 
+                             ((material.0 + material.1 - 2000) as f32 / 78. * tapered_table_mg[i] + (material.0 + material.1 - 2000 + 78) as f32 / 78. * tapered_table_eg[i]) as f32; 
+                }
+                return bonus;
+            }
+
+            if board.side_to_move() == Color::White {
+                tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Pawn), board.color_combined(Color::White), material_each_side, TAPERED_MG_PESTO_PAWN, TAPERED_EG_PESTO_PAWN);
+                tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Rook), board.color_combined(Color::White), material_each_side, TAPERED_MG_PESTO_ROOK, TAPERED_EG_PESTO_ROOK);
+                tapered_pesto += tapered_psqt_calc(board.pieces(Piece::King), board.color_combined(Color::White), material_each_side, TAPERED_MG_PESTO_KING, TAPERED_EG_PESTO_KING);
+                tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Queen), board.color_combined(Color::White), material_each_side, TAPERED_MG_PESTO_QUEEN, TAPERED_EG_PESTO_QUEEN);
+                tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Bishop), board.color_combined(Color::White), material_each_side, TAPERED_MG_PESTO_BISHOP, TAPERED_EG_PESTO_BISHOP);
+                tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Knight), board.color_combined(Color::White), material_each_side, TAPERED_MG_PESTO_KNIGHT, TAPERED_EG_PESTO_KNIGT);
+            } else {
+                tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Pawn), board.color_combined(Color::Black), material_each_side, TAPERED_MG_PESTO_PAWN, TAPERED_EG_PESTO_PAWN);
+                tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Rook), board.color_combined(Color::Black), material_each_side, TAPERED_MG_PESTO_ROOK, TAPERED_EG_PESTO_ROOK);
+                tapered_pesto += tapered_psqt_calc(board.pieces(Piece::King), board.color_combined(Color::Black), material_each_side, TAPERED_MG_PESTO_KING, TAPERED_EG_PESTO_KING);
+                tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Queen), board.color_combined(Color::Black), material_each_side, TAPERED_MG_PESTO_QUEEN, TAPERED_EG_PESTO_QUEEN);
+                tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Bishop), board.color_combined(Color::Black), material_each_side, TAPERED_MG_PESTO_BISHOP, TAPERED_EG_PESTO_BISHOP);
+                tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Knight), board.color_combined(Color::Black), material_each_side, TAPERED_MG_PESTO_KNIGHT, TAPERED_EG_PESTO_KNIGT);
             }
         }
 
@@ -424,8 +462,8 @@ impl Algorithm {
                     bonus -= 0.5*cmp::max((pawn_bitboard & (0x8080808080808080 >> i)).count_ones() as i64 - 1, 0) as f32;
                 }
 
-                //king safety. Outer 3 pawns get +1 eval bonus per pawn if king is behind them. King position required is either ..X..... or ......X.
-                bonus += ((king_bitboard & 0x2).count_ones() * (pawn_bitboard & 0x7).count_ones() + (king_bitboard & 0x20).count_ones() * (pawn_bitboard & 0xE000).count_ones()) as f32;
+                //king safety. Outer 3 pawns get +1 eval bonus per pawn if king is behind them. King naive_psqt required is either ..X..... or ......X.
+                bonus += ((king_bitboard & 0x2).count_ones() * (pawn_bitboard & 0x107).count_ones() + (king_bitboard & 0x20).count_ones() * (pawn_bitboard & 0x80E000).count_ones()) as f32;
                 return bonus;
             }
 
@@ -445,7 +483,7 @@ impl Algorithm {
             }
         }
 
-        let evaluation: f32 = controlled_squares as f32 / 20. + diff_material as f32 + position_bonus + pawn_structure;
+        let evaluation: f32 = controlled_squares as f32 / 20. + diff_material as f32 + naive_psqt + pawn_structure + tapered_pesto;
         return evaluation
     }
 
@@ -453,11 +491,11 @@ impl Algorithm {
         self.transposition_table = HashMap::new();
         self.board_played_times = HashMap::new();
         self.pawn_hash = HashMap::new();
-        self.position_pawn_hash = HashMap::new();
-        self.position_king_hash = HashMap::new();
-        self.position_queen_hash = HashMap::new();
-        self.position_bishop_hash = HashMap::new();
-        self.position_rook_hash = HashMap::new();
-        self.position_knight_hash = HashMap::new();
+        self.naive_psqt_pawn_hash = HashMap::new();
+        self.naive_psqt_king_hash = HashMap::new();
+        self.naive_psqt_queen_hash = HashMap::new();
+        self.naive_psqt_bishop_hash = HashMap::new();
+        self.naive_psqt_rook_hash = HashMap::new();
+        self.naive_psqt_knight_hash = HashMap::new();
     }
 }
