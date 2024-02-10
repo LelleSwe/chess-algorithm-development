@@ -155,3 +155,29 @@ pub(crate) fn passed_deadline(deadline: Instant) -> bool {
 pub(crate) fn module_enabled(modules: u32, module_to_test: u32) -> bool {
     modules & module_to_test != 0
 }
+
+pub(crate) fn match_piece_to_int(input: Option<Piece>) -> usize {
+    match input {
+        Some(Piece::Pawn) => 0,
+        Some(Piece::Knight) => 1,
+        Some(Piece::Bishop) => 2,
+        Some(Piece::Rook) => 3,
+        Some(Piece::Queen) => 4,
+        Some(Piece::King) => 5,
+        //Note: Returning a 6 is not intended, and must be handled on a case-by-case basis.
+        None => 6
+    }
+}
+
+pub(crate) fn match_int_to_piece(input: u8) -> Piece {
+    match input {
+        0 => Piece::Pawn,
+        1 => Piece::Knight,
+        2 => Piece::Bishop,
+        3 => Piece::Rook,
+        4 => Piece::Queen,
+        5 => Piece::King,
+        //Any other input to the function besides 0..5 is terrible behaviour from the input case, and should not happen. I'm simply going to *not* handle that case. Good luck!
+        6_u8..=u8::MAX => unimplemented!()
+    }
+}

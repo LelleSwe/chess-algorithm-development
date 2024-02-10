@@ -8,7 +8,7 @@ pub(crate) mod modules {
     pub(crate) const NAIVE_PSQT: u32 = 0b1000000;
     pub(crate) const PAWN_STRUCTURE: u32 = 0b10000000;
     pub(crate) const TAPERED_EVERY_PRESTO_PSQT: u32 = 0b100000000;
-    pub(crate) const TAPERED_INCREMENTAL_PESTO_PSQT: u32 = 0b100000000;
+    pub(crate) const TAPERED_INCREMENTAL_PESTO_PSQT: u32 = 0b1000000000;
 }
 
 //NAIVE_PSQT TABLES
