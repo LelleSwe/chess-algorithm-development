@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 use crate::algorithms::the_algorithm::Algorithm;
 use crate::common::constants::modules::ANALYZE;
 use crate::common::utils::{self, Stats};
+use crate::PRINT_GAME;
 
 pub(crate) struct Competition {
     pub(crate) algo1: Algorithm,
@@ -241,8 +242,10 @@ impl Competition {
                 );
 
                 //Whether the game just played should be printed in console.
-                //println!("Game pair played.  Outcome: {:?}", combined_outcome);
-                //println!("{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
+                if PRINT_GAME == true {
+                    println!("Game pair played.  Outcome: {:?}", combined_outcome);
+                    println!("{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
+                }
 
                 results.lock().await.register_game_outcome(combined_outcome);
 

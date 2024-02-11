@@ -284,7 +284,7 @@ impl Algorithm {
                 }
                 incremental_psqt_eval += incremental_psqt_eval_change * multiplier as f32;
             }
-            best_evaluation.white_incremental_psqt_eval = Some(incremental_psqt_eval);
+            best_evaluation.incremental_psqt_eval = Some(incremental_psqt_eval);
         }
 
         if module_enabled(self.modules, TRANSPOSITION_TABLE) && depth >= 3 {
