@@ -23,7 +23,6 @@ pub(super) struct Evaluation {
     pub(super) eval: Option<f32>,
     pub(super) next_action: Option<Action>,
     pub(super) white_incremental_psqt_eval: Option<f32>,
-    pub(super) black_incremental_psqt_eval: Option<f32>,
 }
 
 impl Evaluation {
@@ -32,14 +31,12 @@ impl Evaluation {
         next_action: Option<Action>,
         debug_data: Option<Vec<String>>,
         white_incremental_psqt_eval: Option<f32>,
-        black_incremental_psqt_eval: Option<f32>,
     ) -> Evaluation {
         Evaluation {
             eval,
             next_action,
             debug_data,
             white_incremental_psqt_eval,
-            black_incremental_psqt_eval
         }
     }
 }

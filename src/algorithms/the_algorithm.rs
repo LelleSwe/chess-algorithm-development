@@ -1,10 +1,14 @@
-use std::{collections::HashMap, cmp};
+use std::collections::HashMap;
 use tokio::time::{Duration, Instant};
 
-use chess::{Action, Board, BoardStatus, ChessMove, Color, MoveGen, Piece, BitBoard, Square};
+use chess::{Action, BitBoard, Board, BoardStatus, ChessMove, Color, MoveGen, Piece};
 
-use crate::common::constants::{modules::{self, *}, naive_psqt_tables::*, tapered_pesto_psqt_tables::*};
-use crate::common::utils::{self, module_enabled, Stats};
+use crate::common::constants::{
+    modules::{self, *},
+    naive_psqt_tables::*,
+    tapered_pesto_psqt_tables::*,
+};
+use crate::common::utils::{self, module_enabled, piece_value, Stats};
 
 use super::utils::{Evaluation, TranspositionEntry};
 
@@ -21,8 +25,7 @@ pub(crate) struct Algorithm {
     pub(crate) naive_psqt_king_hash: HashMap<BitBoard, f32>,
     pub(crate) naive_psqt_queen_hash: HashMap<BitBoard, f32>,
     pub(crate) naive_psqt_knight_hash: HashMap<BitBoard, f32>,
-    pub(crate) naive_psqt_bishop_hash: HashMap<BitBoard, f32>
-
+    pub(crate) naive_psqt_bishop_hash: HashMap<BitBoard, f32>,
 }
 
 impl Algorithm {
@@ -54,31 +57,29 @@ impl Algorithm {
         stats: &mut Stats,
         num_extensions: u32,
         board_played_times_prediction: &mut HashMap<Board, u32>,
-        mut white_incremental_psqt_eval: f32,
-        mut black_incremental_psqt_eval: f32,
+        mut incremental_psqt_eval: f32,
     ) -> Evaluation {
-
-
         if depth == 0 {
             stats.leaves_visited += 1;
-            let eval = self.eval(board, board_played_times_prediction);
-            // if module_enabled(self.modules, TRANSPOSITION_TABLE) {
-            //     let start = Instant::now();
-            //     self.transposition_table
-            //         .insert(*board, TranspositionEntry::new(depth, eval, None));
-            //     stats.time_for_transposition_access += Instant::now() - start;
-            //     stats.transposition_table_entries += 1
-            // }
-            let incremental_psqt_eval = white_incremental_psqt_eval;
-            if board.side_to_move() == Color::Black {
-                let incremental_psqt_eval = black_incremental_psqt_eval;
-            } 
-            return Evaluation::new(Some(eval + incremental_psqt_eval), None, None, Some(white_incremental_psqt_eval), Some(black_incremental_psqt_eval));
+            let eval = self.eval(board, board_played_times_prediction, incremental_psqt_eval);
+            if module_enabled(self.modules, TRANSPOSITION_TABLE) {
+                let start = Instant::now();
+                self.transposition_table
+                    .insert(*board, TranspositionEntry::new(depth, eval, None));
+                stats.time_for_transposition_access += Instant::now() - start;
+                stats.transposition_table_entries += 1
+            }
+            return Evaluation::new(
+                Some(eval + incremental_psqt_eval),
+                None,
+                None,
+                Some(incremental_psqt_eval),
+            );
         }
 
         // Whether we should try to maximise the eval
         let maximise: bool = board.side_to_move() == Color::White;
-        let mut best_evaluation = Evaluation::new(None, None, None, None, None);
+        let mut best_evaluation = Evaluation::new(None, None, None, None);
 
         let legal_moves = MoveGen::new_legal(board);
         let num_legal_moves = legal_moves.len();
@@ -90,17 +91,17 @@ impl Algorithm {
 
             // If we arrive at here and it is checkmate, then we know that the side playing
             // has been checkmated.
-             
+
             best_evaluation.eval = Some(if board.side_to_move() == Color::White {
                 f32::MIN
             } else {
                 f32::MAX
             });
-            return best_evaluation;
-            }
-            
-            //best_evaluation.eval = Some(f32::MIN);
 
+            return best_evaluation;
+        }
+
+        //best_evaluation.eval = Some(f32::MIN);
 
         let mut boards = legal_moves
             .map(|chess_move| {
@@ -167,8 +168,7 @@ impl Algorithm {
                         Some(transposition_entry.unwrap().eval),
                         transposition_entry.unwrap().next_action,
                         None,
-                        Some(white_incremental_psqt_eval),
-                        Some(black_incremental_psqt_eval)
+                        Some(incremental_psqt_eval),
                     )
                 } else {
                     board_played_times_prediction.insert(
@@ -185,8 +185,7 @@ impl Algorithm {
                         stats,
                         num_extensions + extend_by,
                         board_played_times_prediction,
-                        white_incremental_psqt_eval,
-                        black_incremental_psqt_eval,
+                        incremental_psqt_eval,
                     );
                     board_played_times_prediction.insert(
                         new_board,
@@ -243,104 +242,55 @@ impl Algorithm {
             }
 
             if utils::module_enabled(self.modules, modules::TAPERED_INCREMENTAL_PESTO_PSQT) {
-
-
-                fn match_piece_to_int(input: Option<Piece>) -> usize {
-                    match input {
-                        Some(Piece::Pawn) => 0,
-                        Some(Piece::Knight) => 1,
-                        Some(Piece::Bishop) => 2,
-                        Some(Piece::Rook) => 3,
-                        Some(Piece::Queen) => 4,
-                        Some(Piece::King) => 5,
-                        //Note: Returning a 6 is not intended, and must be handled on a case-by-case basis.
-                        None => 6
-                    }
-                }
-
-                fn match_int_to_piece(input: u8) -> Piece {
-                    match input {
-                        0 => Piece::Pawn,
-                        1 => Piece::Knight,
-                        2 => Piece::Bishop,
-                        3 => Piece::Rook,
-                        4 => Piece::Queen,
-                        5 => Piece::King,
-                        //Any other input to the function besides 0..5 is terrible behaviour from the input case, and should not happen. I'm simply going to *not* handle that case. Good luck!
-                        6_u8..=u8::MAX => unimplemented!()
-                    }
-                }
-
                 let material_each_side = utils::material_each_side(board);
-                fn calc_increment(piece_type: usize, location: usize, material_each_side: (u32, u32)) -> f32 {
-                    return ((material_each_side.0 + material_each_side.1 - 2000) as f32 * TAPERED_MG_PESTO[piece_type][location] + (material_each_side.0 + material_each_side.1 - 2000 + 78) as f32 * TAPERED_EG_PESTO[piece_type][location]) as f32;
+                fn calc_increment(
+                    piece_type: Piece,
+                    location: usize,
+                    material_each_side: (u32, u32),
+                ) -> f32 {
+                    (material_each_side.0 + material_each_side.1 - 2 * piece_value(Piece::King))
+                        as f32
+                        * TAPERED_MG_PESTO[piece_type.to_index()][location]
+                        + (78 - material_each_side.0 + material_each_side.1
+                            - 2 * piece_value(Piece::King)) as f32
+                            * TAPERED_EG_PESTO[piece_type.to_index()][location]
                 }
-                
-                fn calc_increment_all(board: &Board, color_bitboard: &BitBoard, material_each_side: (u32, u32)) -> f32 {
-                    let mut incremental_psqt_eval: f32 = 0.;
-                    //Essentially, gets the dot product between a "vector" of the bitboard (containing 64 0s and 1s) and the table with NAIVE_PSQT bonus constants.
-                    //Get's the bitboard with all piece positions, and runs bitwise and for the board having one's own colors.
-                    //Iterates over all types of squares
-                    for j in 0..5 {
-                        //Iterates over all 64 squares on the board.
-                        for i in 0..63 {
-                            //The psqt tables and bitboards are flipped vertically, hence .reverse_colors(). Reverse colors is for some reason faster than replacing i with 56-i+2*(i%8).
-                            //By being tapered, it means that we have an (opening + middlgame) and an endgame PSQT, and we (hopefully?) linerarly transition from one to the other, depending on material value.
-                            incremental_psqt_eval += ((board.pieces(match_int_to_piece(j)) & color_bitboard).reverse_colors().to_size(0) >> i & 1) as f32 * 
-                                      ((material_each_side.0 + material_each_side.1 - 2000) as f32 * TAPERED_MG_PESTO[j as usize][i as usize] + (material_each_side.0 + material_each_side.1 - 2000 + 78) as f32 * TAPERED_EG_PESTO[j as usize][i as usize]) as f32 / 78.; 
-                        }
-                    }
-                    return incremental_psqt_eval;
-                }
-                let moved_piece_type: usize = match_piece_to_int(board.piece_on(chess_move.get_source()));
 
-                let mut is_attacked: bool = true;
-                if match_piece_to_int(board.piece_on(chess_move.get_dest())) == 6 {
-                    is_attacked = false;
-                }
-                let attacked_piece_type: usize = match_piece_to_int(board.piece_on(chess_move.get_dest()));
-                
-                if board.side_to_move() == Color::White {
-                    let color_bitboard: &BitBoard = &board.color_combined(Color::White);
-                    if white_incremental_psqt_eval == 0. {
-                        white_incremental_psqt_eval += calc_increment_all(board, color_bitboard, material_each_side)                        
-                    } else {
+                let moved_piece_type = board.piece_on(chess_move.get_source()).unwrap();
 
-                        //Remove the eval from the previous square we stood on.
-                        let source: usize = (56 - chess_move.get_source().to_int()  + 2*(chess_move.get_source().to_int() % 8)) as usize;
-                        white_incremental_psqt_eval -= calc_increment(moved_piece_type, source, material_each_side);
-
-                        //Increase the eval at the destination
-                        let dest: usize = (56 - chess_move.get_dest().to_int()  + 2*(chess_move.get_dest().to_int() % 8)) as usize;
-                        white_incremental_psqt_eval += calc_increment(moved_piece_type, dest, material_each_side);
-
-                        //Decrement enemy eval from potetntial capture
-                        if is_attacked {
-                            black_incremental_psqt_eval -= calc_increment(attacked_piece_type, dest, material_each_side);
-                        }
-                    }
+                let multiplier = if board.side_to_move() == Color::White {
+                    1
                 } else {
-                    let color_bitboard: &BitBoard = &board.color_combined(Color::Black);
-                    if black_incremental_psqt_eval == 0. {
-                        black_incremental_psqt_eval += calc_increment_all(board, color_bitboard, material_each_side)                        
-                    } else {
-                        //Remove the eval from the previous square we stood on.
-                        let source: usize = (56 - chess_move.get_source().to_int()  + 2*(chess_move.get_source().to_int() % 8)) as usize;
-                        black_incremental_psqt_eval -= calc_increment(moved_piece_type, source, material_each_side);
+                    -1
+                };
+                let mut incremental_psqt_eval_change = 0.;
+                if incremental_psqt_eval_change == 0. {
+                    incremental_psqt_eval_change +=
+                        Self::calc_tapered_psqt_eval(board, material_each_side);
+                } else {
+                    //Remove the eval from the previous square we stood on.
+                    let source: usize = (56 - chess_move.get_source().to_int()
+                        + 2 * (chess_move.get_source().to_int() % 8))
+                        as usize;
+                    incremental_psqt_eval_change -=
+                        calc_increment(moved_piece_type, source, material_each_side);
 
-                        //Increase the eval at the destination
-                        let dest: usize = (56 - chess_move.get_dest().to_int()  + 2*(chess_move.get_dest().to_int() % 8)) as usize;
-                        black_incremental_psqt_eval += calc_increment(moved_piece_type, dest, material_each_side);
+                    //Increase the eval at the destination
+                    let dest: usize = (56 - chess_move.get_dest().to_int()
+                        + 2 * (chess_move.get_dest().to_int() % 8))
+                        as usize;
+                    incremental_psqt_eval_change +=
+                        calc_increment(moved_piece_type, dest, material_each_side);
 
-                        //Decrement enemy eval from potetntial capture
-                        if is_attacked {
-                            white_incremental_psqt_eval -= calc_increment(attacked_piece_type, dest, material_each_side);
-                        }
+                    //Decrement enemy eval from potetntial capture
+                    if let Some(attacked_piece_type) = board.piece_on(chess_move.get_dest()) {
+                        incremental_psqt_eval_change +=
+                            calc_increment(attacked_piece_type, dest, material_each_side);
                     }
                 }
+                incremental_psqt_eval += incremental_psqt_eval_change * multiplier as f32;
             }
-            best_evaluation.white_incremental_psqt_eval = Some(white_incremental_psqt_eval);
-            best_evaluation.black_incremental_psqt_eval = Some(black_incremental_psqt_eval);
+            best_evaluation.white_incremental_psqt_eval = Some(incremental_psqt_eval);
         }
 
         if module_enabled(self.modules, TRANSPOSITION_TABLE) && depth >= 3 {
@@ -383,7 +333,6 @@ impl Algorithm {
             0,
             &mut HashMap::new(),
             0.,
-            0.
         );
         let analyzer_data = out.debug_data.unwrap_or_default();
         (out.next_action, analyzer_data, stats)
@@ -441,8 +390,6 @@ impl Algorithm {
                 action = Action::DeclareDraw;
             }
             self.board_played_times.insert(new_board, old_value + 1);
-
-            
         }
 
         (action, deepest_complete_output.1, deepest_complete_output.2)
@@ -452,7 +399,8 @@ impl Algorithm {
         &mut self,
         board: &Board,
         board_played_times_prediction: &HashMap<Board, u32>,
-        ) -> f32 {
+        incremental_psqt_eval: f32,
+    ) -> f32 {
         let board_status = board.status();
         if board_status == BoardStatus::Stalemate {
             return 0.;
@@ -484,116 +432,176 @@ impl Algorithm {
             } * MoveGen::new_legal(board).count() as i32;
         }
 
-        //Compares piece position with an 8x8 table containing certain values. The value corresponding to the position of the piece gets added as evaluation.
+        // Compares piece position with an 8x8 table containing certain values. The value corresponding to the position of the piece gets added as evaluation.
         let mut naive_psqt: f32 = 0.;
         if utils::module_enabled(self.modules, modules::NAIVE_PSQT) {
-            fn naive_psqt_calc(naive_psqt_table: [f32; 64], piece_bitboard: &BitBoard, color_bitboard: &BitBoard) -> f32 {
-                //Essentially, gets the dot product between a "vector" of the bitboard (containing 64 0s and 1s) and the table with NAIVE_PSQT bonus constants.
+            fn naive_psqt_calc(
+                naive_psqt_table: [f32; 64],
+                piece_bitboard: &BitBoard,
+                color_bitboard: &BitBoard,
+            ) -> f32 {
+                // Essentially, gets the dot product between a "vector" of the bitboard (containing 64 0s and 1s) and the table with NAIVE_PSQT bonus constants.
                 let mut bonus: f32 = 0.;
-                //Get's the bitboard with all piece NAIVE_PSQTs, and runs bitwise and for the board having one's own colors.
-                for i in 0..63 {
+                // Gets the bitboard with all piece NAIVE_PSQTs, and runs bitwise and for the board having one's own colors.
+                for (i, table_entry) in naive_psqt_table.iter().enumerate() {
                     //The naive_psqt table and bitboard are flipped vertically, hence .reverse_colors(). Reverse colors is for some reason faster than replacing i with 56-i+2*(i%8).
-                    bonus += ((piece_bitboard & color_bitboard).reverse_colors().to_size(0) >> i & 1) as f32 * naive_psqt_table[i]; 
+                    bonus += ((piece_bitboard & color_bitboard)
+                        .reverse_colors()
+                        .to_size(i as u8)
+                        & 1) as f32
+                        * table_entry;
                 }
-                return bonus;
+                bonus
             }
 
-            //Utilizes hashmaps so we don't have to recalculate the entire bonus for all pieces every move. This is slightly faster.
-            fn in_hash_map(bitboard: &BitBoard, color_bitboard: &BitBoard, naive_psqt_table: [f32; 64], naive_psqt_hash_map: &mut HashMap::<BitBoard, f32>) -> f32 {
-                if !naive_psqt_hash_map.contains_key(&(bitboard & color_bitboard)) {
-                    naive_psqt_hash_map.insert(bitboard & color_bitboard, naive_psqt_calc(naive_psqt_table, bitboard, color_bitboard));
-                }
-                return *naive_psqt_hash_map.get(&(bitboard & color_bitboard)).unwrap();
+            macro_rules! in_hash_map {
+                ($board: tt, $piece: tt, $table: tt, $hashmap: tt) => {
+                    in_hash_map(
+                        $board.pieces(Piece::$piece),
+                        $board.color_combined($board.side_to_move()),
+                        $table,
+                        &mut self.$hashmap,
+                    )
+                };
             }
 
-            if board.side_to_move() == Color::White {
-                naive_psqt += in_hash_map(board.pieces(Piece::Pawn), board.color_combined(Color::White), NAIVE_PSQT_TABLE_PAWN, &mut self.naive_psqt_pawn_hash);
-                naive_psqt += in_hash_map(board.pieces(Piece::Rook), board.color_combined(Color::White), NAIVE_PSQT_TABLE_ROOK, &mut self.naive_psqt_rook_hash);
-                naive_psqt += in_hash_map(board.pieces(Piece::King), board.color_combined(Color::White), NAIVE_PSQT_TABLE_KING, &mut self.naive_psqt_king_hash);
-                naive_psqt += in_hash_map(board.pieces(Piece::Queen), board.color_combined(Color::White), NAIVE_PSQT_TABLE_QUEEN, &mut self.naive_psqt_queen_hash);
-                naive_psqt += in_hash_map(board.pieces(Piece::Bishop), board.color_combined(Color::White), NAIVE_PSQT_TABLE_BISHOP, &mut self.naive_psqt_bishop_hash);
-                naive_psqt += in_hash_map(board.pieces(Piece::Knight), board.color_combined(Color::White), NAIVE_PSQT_TABLE_KNIGHT, &mut self.naive_psqt_knight_hash);
-            } else {
-                naive_psqt += in_hash_map(board.pieces(Piece::Pawn), board.color_combined(Color::Black), NAIVE_PSQT_TABLE_PAWN, &mut self.naive_psqt_pawn_hash);
-                naive_psqt += in_hash_map(board.pieces(Piece::Rook), board.color_combined(Color::Black), NAIVE_PSQT_TABLE_ROOK, &mut self.naive_psqt_rook_hash);
-                naive_psqt += in_hash_map(board.pieces(Piece::King), board.color_combined(Color::Black), NAIVE_PSQT_TABLE_KING, &mut self.naive_psqt_king_hash);
-                naive_psqt += in_hash_map(board.pieces(Piece::Queen), board.color_combined(Color::Black), NAIVE_PSQT_TABLE_QUEEN, &mut self.naive_psqt_queen_hash);
-                naive_psqt += in_hash_map(board.pieces(Piece::Bishop), board.color_combined(Color::Black), NAIVE_PSQT_TABLE_BISHOP, &mut self.naive_psqt_bishop_hash);
-                naive_psqt += in_hash_map(board.pieces(Piece::Knight), board.color_combined(Color::Black), NAIVE_PSQT_TABLE_KNIGHT, &mut self.naive_psqt_knight_hash);
+            /// Utilizes hashmaps so we don't have to recalculate the entire bonus for all pieces every move. This is slightly faster.
+            /// Either calculates native_psqt or takes it from the hashmap if it exists
+            fn in_hash_map(
+                piece_bitboard: &BitBoard,
+                color_bitboard: &BitBoard,
+                naive_psqt_table: [f32; 64],
+                naive_psqt_hash_map: &mut HashMap<BitBoard, f32>,
+            ) -> f32 {
+                *naive_psqt_hash_map
+                    .entry(piece_bitboard & color_bitboard)
+                    .or_insert_with(|| {
+                        naive_psqt_calc(naive_psqt_table, piece_bitboard, color_bitboard)
+                    })
             }
+
+            naive_psqt += in_hash_map!(board, Pawn, NAIVE_PSQT_TABLE_PAWN, naive_psqt_pawn_hash);
+            naive_psqt += in_hash_map!(board, Rook, NAIVE_PSQT_TABLE_ROOK, naive_psqt_rook_hash);
+            naive_psqt += in_hash_map!(board, King, NAIVE_PSQT_TABLE_KING, naive_psqt_king_hash);
+            naive_psqt += in_hash_map!(board, Queen, NAIVE_PSQT_TABLE_QUEEN, naive_psqt_queen_hash);
+            naive_psqt += in_hash_map!(
+                board,
+                Bishop,
+                NAIVE_PSQT_TABLE_BISHOP,
+                naive_psqt_bishop_hash
+            );
+            naive_psqt += in_hash_map!(
+                board,
+                Knight,
+                NAIVE_PSQT_TABLE_KNIGHT,
+                naive_psqt_knight_hash
+            );
         }
 
         let mut tapered_pesto: f32 = 0.;
-        if utils::module_enabled(self.modules, modules::TAPERED_EVERY_PRESTO_PSQT) {
-            fn tapered_psqt_calc(piece_bitboard: &BitBoard, color_bitboard: &BitBoard, material: (u32, u32), piece_index: usize) -> f32 {
-                //Essentially, gets the dot product between a "vector" of the bitboard (containing 64 0s and 1s) and the table with NAIVE_PSQT bonus constants.
-                let mut bonus: f32 = 0.;
-                //Get's the bitboard with all piece positions, and runs bitwise and for the board having one's own colors.
-                //Iterates over all 64 squares on the board.
-                for i in 0..63 {
-                    //The psqt tables and bitboards are flipped vertically, hence .reverse_colors(). Reverse colors is for some reason faster than replacing i with 56-i+2*(i%8).
-                    //By being tapered, it means that we have an (opening + middlgame) and an endgame PSQT, and we (hopefully?) linerarly transition from one to the other, depending on material value.
-                    bonus += ((piece_bitboard & color_bitboard).reverse_colors().to_size(0) >> i & 1) as f32 * 
-                              ((material.0 + material.1 - 2000) as f32 * TAPERED_MG_PESTO[piece_index][i] + (material.0 + material.1 - 2000 + 78) as f32 * TAPERED_EG_PESTO[piece_index][i]) as f32; 
-                }
-                return bonus / 78.;
-            }
-
-                if board.side_to_move() == Color::White {
-                    tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Pawn), board.color_combined(Color::White), material_each_side, 0);
-                    tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Rook), board.color_combined(Color::White), material_each_side, 3);
-                    tapered_pesto += tapered_psqt_calc(board.pieces(Piece::King), board.color_combined(Color::White), material_each_side, 5);
-                    tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Queen), board.color_combined(Color::White), material_each_side, 4);
-                    tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Bishop), board.color_combined(Color::White), material_each_side, 2);
-                    tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Knight), board.color_combined(Color::White), material_each_side, 1);
-                } else {
-                    tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Pawn), board.color_combined(Color::Black), material_each_side, 0);
-                    tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Rook), board.color_combined(Color::Black), material_each_side, 3);
-                    tapered_pesto += tapered_psqt_calc(board.pieces(Piece::King), board.color_combined(Color::Black), material_each_side, 5);
-                    tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Queen), board.color_combined(Color::Black), material_each_side, 4);
-                    tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Bishop), board.color_combined(Color::Black), material_each_side, 2);
-                    tapered_pesto += tapered_psqt_calc(board.pieces(Piece::Knight), board.color_combined(Color::Black), material_each_side, 1);
-                }
+        if utils::module_enabled(self.modules, modules::TAPERED_EVERY_PESTO_PSQT) {
+            tapered_pesto = Self::calc_tapered_psqt_eval(board, material_each_side)
         }
 
         let mut pawn_structure: f32 = 0.;
         if utils::module_enabled(self.modules, modules::PAWN_STRUCTURE) {
-            fn pawn_structure_calc(all_pawn_bitboard: &BitBoard, color_bitboard: &BitBoard, all_king_bitboard: &BitBoard) -> f32 {
+            fn pawn_structure_calc(
+                all_pawn_bitboard: &BitBoard,
+                color_bitboard: &BitBoard,
+                all_king_bitboard: &BitBoard,
+            ) -> f32 {
                 let mut bonus: f32 = 0.;
                 let pawn_bitboard: usize = (all_pawn_bitboard & color_bitboard).to_size(0);
                 let king_bitboard: usize = (all_king_bitboard & color_bitboard).to_size(0);
                 //pawn chain, awarding 0.5 eval for each pawn protected by another pawn.
-                bonus += 0.5*((pawn_bitboard & (pawn_bitboard << 7)).count_ones() + (pawn_bitboard & (pawn_bitboard << 9)).count_ones()) as f32;
+                bonus += 0.5
+                    * ((pawn_bitboard & (pawn_bitboard << 7)).count_ones()
+                        + (pawn_bitboard & (pawn_bitboard << 9)).count_ones())
+                        as f32;
 
                 //stacked pawns. -0.5 points per rank containing >1 pawns. By taking the pawn bitboard and operating bitwise AND for another bitboard (integer) where the leftmost rank is filled. This returns all pawns in that rank. By bitshifting we can choose rank. Additionally by counting we get number of pawns. We then remove 1 as we only want to know if there are >1 pawn. If there is, subtract 0.5 points per extra pawn.
                 for i in 0..7 {
-                    //constant 9259542123273814144 = 0x8080808080808080, or the entire first rank.
-                    bonus -= 0.5*cmp::max((pawn_bitboard & (0x8080808080808080 >> i)).count_ones() as i64 - 1, 0) as f32;
+                    //constant 0x8080808080808080: entire first rank.
+                    bonus -= 0.5
+                        * ((pawn_bitboard & (0x8080808080808080 >> i)).count_ones() as f32 - 1.)
+                            .max(0.);
                 }
 
                 //king safety. Outer 3 pawns get +1 eval bonus per pawn if king is behind them. King naive_psqt required is either ..X..... or ......X.
-                bonus += ((king_bitboard & 0x2).count_ones() * (pawn_bitboard & 0x107).count_ones() + (king_bitboard & 0x20).count_ones() * (pawn_bitboard & 0x80E000).count_ones()) as f32;
-                return bonus;
+                bonus += ((king_bitboard & 0x2).count_ones() * (pawn_bitboard & 0x107).count_ones()
+                    + (king_bitboard & 0x20).count_ones() * (pawn_bitboard & 0x80E000).count_ones())
+                    as f32;
+                bonus
             }
 
             //Because pawn moves (according to chessprogramming.org) are rarely performed, hashing them is useful.
-            if board.side_to_move() == Color::White {
-                let pawn_bitboard: BitBoard = board.pieces(Piece::Pawn) & board.color_combined(Color::White);
-                if !self.pawn_hash.contains_key(&pawn_bitboard) {
-                    self.pawn_hash.insert(pawn_bitboard, pawn_structure_calc(board.pieces(Piece::Pawn), board.color_combined(Color::White), board.pieces(Piece::King)));
-                }
-                pawn_structure = *self.pawn_hash.get(&pawn_bitboard).unwrap();
-            } else {
-                let pawn_bitboard: BitBoard = board.pieces(Piece::Pawn) & board.color_combined(Color::Black);
-                if !self.pawn_hash.contains_key(&pawn_bitboard) {
-                    self.pawn_hash.insert(pawn_bitboard, pawn_structure_calc(board.pieces(Piece::Pawn), board.color_combined(Color::Black), board.pieces(Piece::King)));
-                }
-                pawn_structure = *self.pawn_hash.get(&pawn_bitboard).unwrap();
-            }
+            let pawn_bitboard: BitBoard =
+                board.pieces(Piece::Pawn) & board.color_combined(board.side_to_move());
+            self.pawn_hash.entry(pawn_bitboard).or_insert_with(|| {
+                pawn_structure_calc(
+                    board.pieces(Piece::Pawn),
+                    board.color_combined(board.side_to_move()),
+                    board.pieces(Piece::King),
+                )
+            });
+            pawn_structure = *self.pawn_hash.get(&pawn_bitboard).unwrap();
         }
 
-        let evaluation: f32 = controlled_squares as f32 / 20. + diff_material as f32 + naive_psqt + pawn_structure + tapered_pesto;
-        return evaluation
+        let evaluation: f32 = controlled_squares as f32 / 20.
+            + diff_material as f32
+            + naive_psqt
+            + pawn_structure
+            + tapered_pesto
+            + incremental_psqt_eval;
+        evaluation
+    }
+
+    fn calc_tapered_psqt_eval(board: &Board, material_each_side: (u32, u32)) -> f32 {
+        fn tapered_psqt_calc(
+            piece_bitboard: &BitBoard,
+            color_bitboard: &BitBoard,
+            material: (u32, u32),
+            piece_index: usize,
+        ) -> f32 {
+            // Essentially, gets the dot product between a "vector" of the bitboard (containing 64 0s and 1s) and the table with NAIVE_PSQT bonus constants.
+            let mut bonus: f32 = 0.;
+            // Gets the bitboard with all piece positions, and runs bitwise and for the board having one's own colors.
+            // Iterates over all 64 squares on the board.
+            for i in 0..63 {
+                // The psqt tables and bitboards are flipped vertically, hence .reverse_colors().
+                // Reverse colors is for some reason faster than replacing i with 56-i+2*(i%8).
+                // By being tapered, it means that we have an (opening + middlegame) and an endgame PSQT,
+                // and we (hopefully?) linerarly transition from one to the other, depending on material value.
+                bonus += ((piece_bitboard & color_bitboard)
+                    .reverse_colors()
+                    .to_size(i as u8)
+                    & 1) as f32
+                    * ((material.0 + material.1 - 2 * piece_value(Piece::King)) as f32
+                        * TAPERED_MG_PESTO[piece_index][i]
+                        + (78 - (material.0 + material.1 - 2 * piece_value(Piece::King))) as f32
+                            * TAPERED_EG_PESTO[piece_index][i]);
+            }
+            bonus / 78.
+        }
+
+        macro_rules! tapered_psqt_calc {
+            ($board: tt, $piece: tt, $material: tt, $index: tt) => {
+                tapered_psqt_calc(
+                    $board.pieces(Piece::$piece),
+                    $board.color_combined($board.side_to_move()),
+                    $material,
+                    $index,
+                )
+            };
+        }
+        let mut tapered_pesto = 0.;
+        tapered_pesto += tapered_psqt_calc!(board, Pawn, material_each_side, 0);
+        tapered_pesto += tapered_psqt_calc!(board, Rook, material_each_side, 3);
+        tapered_pesto += tapered_psqt_calc!(board, King, material_each_side, 5);
+        tapered_pesto += tapered_psqt_calc!(board, Queen, material_each_side, 4);
+        tapered_pesto += tapered_psqt_calc!(board, Bishop, material_each_side, 2);
+        tapered_pesto += tapered_psqt_calc!(board, Knight, material_each_side, 1);
+        tapered_pesto
     }
 
     pub(crate) fn reset(&mut self) {
