@@ -69,12 +69,7 @@ impl Algorithm {
                 stats.time_for_transposition_access += Instant::now() - start;
                 stats.transposition_table_entries += 1
             }
-            return Evaluation::new(
-                Some(eval + incremental_psqt_eval),
-                None,
-                None,
-                Some(incremental_psqt_eval),
-            );
+            return Evaluation::new(Some(eval), None, None, Some(incremental_psqt_eval));
         }
 
         // Whether we should try to maximise the eval
@@ -255,7 +250,6 @@ impl Algorithm {
                             - 2 * piece_value(Piece::King)) as f32
                             * TAPERED_EG_PESTO[piece_type.to_index()][location]
                 }
-
                 let moved_piece_type = board.piece_on(chess_move.get_source()).unwrap();
 
                 let multiplier = if board.side_to_move() == Color::White {
@@ -418,10 +412,10 @@ impl Algorithm {
             // This is third time this is played. Draw by three-fold repetition
             return 0.;
         }
-        let material_each_side = utils::material_each_side(board);
+        let material_each_side: (u32, u32) = utils::material_each_side(board);
 
         // Negative when black has advantage
-        let diff_material = material_each_side.0 as i32 - material_each_side.1 as i32;
+        let diff_material: i32 = material_each_side.0 as i32 - material_each_side.1 as i32;
 
         let mut controlled_squares = 0;
         if utils::module_enabled(self.modules, modules::SQUARE_CONTROL_METRIC) {
@@ -513,10 +507,10 @@ impl Algorithm {
                 let mut bonus: f32 = 0.;
                 let pawn_bitboard: usize = (all_pawn_bitboard & color_bitboard).to_size(0);
                 let king_bitboard: usize = (all_king_bitboard & color_bitboard).to_size(0);
-                //pawn chain, awarding 0.5 eval for each pawn protected by another pawn.
+                //pawn chain, awarding 0.5 eval for each pawn protected by another pawn. Constants should in theory cover an (literal) edge case... I hope.
                 bonus += 0.5
-                    * ((pawn_bitboard & (pawn_bitboard << 7)).count_ones()
-                        + (pawn_bitboard & (pawn_bitboard << 9)).count_ones())
+                    * ((pawn_bitboard & (0xFEFEFEFEFEFEFEFE & pawn_bitboard << 7)).count_ones()
+                        + (pawn_bitboard & (0x7F7F7F7F7F7F7F7F & pawn_bitboard << 9)).count_ones())
                         as f32;
 
                 //stacked pawns. -0.5 points per rank containing >1 pawns. By taking the pawn bitboard and operating bitwise AND for another bitboard (integer) where the leftmost rank is filled. This returns all pawns in that rank. By bitshifting we can choose rank. Additionally by counting we get number of pawns. We then remove 1 as we only want to know if there are >1 pawn. If there is, subtract 0.5 points per extra pawn.
