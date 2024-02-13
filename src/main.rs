@@ -15,14 +15,14 @@ mod common;
 mod pitter;
 
 //If we should print the moves played and results of each game.
-pub(crate) const PRINT_GAME: bool = true;
+pub(crate) const PRINT_GAME: bool = false;
 
 #[tokio::main]
 async fn main() {
-    //ALPHA_BETA | ANALYZE | SEARCH_EXTENSIONS | SKIP_BAD_MOVES | SQUARE_CONTROL_METRIC | TRANSPOSITION_TABLE | NAIVE_PSQT | PAWN_STRUCTURE | TAPERED_EVERY_PRESTO_PSQT | TAPERED_INCREMENTAL_PESTO_PSQT
+    //ALPHA_BETA | ANALYZE | SEARCH_EXTENSIONS | SKIP_BAD_MOVES | SQUARE_CONTROL_METRIC | TRANSPOSITION_TABLE | NAIVE_PSQT | PAWN_STRUCTURE | TAPERED_EVERY_PESTO_PSQT | TAPERED_INCREMENTAL_PESTO_PSQT
     //Put 0 for no modules.
     let modules1 = ALPHA_BETA | TAPERED_INCREMENTAL_PESTO_PSQT;
-    let modules2 = 0;
+    let modules2 = ALPHA_BETA;
     let time_per_move1 = Duration::from_micros(2000);
     let time_per_move2 = Duration::from_micros(2000);
 
