@@ -239,7 +239,6 @@ impl Algorithm {
             }
 
             if utils::module_enabled(self.modules, modules::TAPERED_INCREMENTAL_PESTO_PSQT) {
-                let material_each_side = utils::material_each_side(board);
                 fn calc_increment(
                     piece_type: Piece,
                     location: usize,
@@ -507,7 +506,7 @@ impl Algorithm {
         if utils::module_enabled(self.modules, modules::TAPERED_EVERY_PESTO_PSQT) {
             for i in 0..5 {
                 mg_tapered_pesto += Self::calc_tapered_psqt_eval(board, i, true);
-                eg_tapered_pesto += Self::calc_tapered_psqt_eval(board, 0, false);
+                eg_tapered_pesto += Self::calc_tapered_psqt_eval(board, i, false);
             }
             tapered_pesto = ((material_each_side.0 + material_each_side.1 - 2 * piece_value(Piece::King)) as f32 * mg_tapered_pesto + 
             (78 - (material_each_side.0 + material_each_side.1 - 2 * piece_value(Piece::King))) as f32 * eg_tapered_pesto)
