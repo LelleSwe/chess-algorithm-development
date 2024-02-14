@@ -34,6 +34,6 @@ async fn main() {
     // competition.analyze_algorithm_choices(|(game_info, _), _| {
     //     game_info.outcome == GameOutcome::InconclusiveTooLong
     // });
-    let results = competition.start_competition(200).await;
+    let results = competition.start_competition(1000).await;
     dbg!(results);
 }

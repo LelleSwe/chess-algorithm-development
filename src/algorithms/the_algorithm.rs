@@ -261,20 +261,11 @@ impl Algorithm {
                 let mut mg_incremental_psqt_eval_change = 0.;
                 let mut eg_incremental_psqt_eval_change = 0.;
                 if mg_incremental_psqt_eval_change == 0. || eg_incremental_psqt_eval_change == 0. {
-                    mg_incremental_psqt_eval_change +=
-                        Self::calc_tapered_psqt_eval(board, material_each_side, 0, true)
-                        + Self::calc_tapered_psqt_eval(board, material_each_side, 1, true)
-                        + Self::calc_tapered_psqt_eval(board, material_each_side, 2, true)
-                        + Self::calc_tapered_psqt_eval(board, material_each_side, 3, true)
-                        + Self::calc_tapered_psqt_eval(board, material_each_side, 4, true)
-                        + Self::calc_tapered_psqt_eval(board, material_each_side, 5, true);
-                    eg_incremental_psqt_eval_change +=
-                    Self::calc_tapered_psqt_eval(board, material_each_side, 0, false)
-                    + Self::calc_tapered_psqt_eval(board, material_each_side, 1, false)
-                    + Self::calc_tapered_psqt_eval(board, material_each_side, 2, false)
-                    + Self::calc_tapered_psqt_eval(board, material_each_side, 3, false)
-                    + Self::calc_tapered_psqt_eval(board, material_each_side, 4, false)
-                    + Self::calc_tapered_psqt_eval(board, material_each_side, 5, false);
+                    for i in 0..5 {
+                        mg_incremental_psqt_eval_change += Self::calc_tapered_psqt_eval(board, i, true);
+                        mg_incremental_psqt_eval_change += Self::calc_tapered_psqt_eval(board, i, false);
+                    }
+
                 } else {
                     //Remove the eval from the previous square we stood on.
                     let source: usize = (56 - chess_move.get_source().to_int()
@@ -514,20 +505,10 @@ impl Algorithm {
         let mut eg_tapered_pesto: f32 = 0.;
         let mut tapered_pesto: f32 = 0.;
         if utils::module_enabled(self.modules, modules::TAPERED_EVERY_PESTO_PSQT) {
-            tapered_pesto = Self::calc_tapered_psqt_eval(board, material_each_side, 0, true);
-            mg_tapered_pesto += Self::calc_tapered_psqt_eval(board, material_each_side, 0, true);
-            mg_tapered_pesto += Self::calc_tapered_psqt_eval(board, material_each_side, 1, true);
-            mg_tapered_pesto += Self::calc_tapered_psqt_eval(board, material_each_side, 2, true);
-            mg_tapered_pesto += Self::calc_tapered_psqt_eval(board, material_each_side, 3, true);
-            mg_tapered_pesto += Self::calc_tapered_psqt_eval(board, material_each_side, 4, true);
-            mg_tapered_pesto += Self::calc_tapered_psqt_eval(board, material_each_side, 5, true);
-    
-            eg_tapered_pesto += Self::calc_tapered_psqt_eval(board, material_each_side, 0, false);
-            eg_tapered_pesto += Self::calc_tapered_psqt_eval(board, material_each_side, 1, false);
-            eg_tapered_pesto += Self::calc_tapered_psqt_eval(board, material_each_side, 2, false);
-            eg_tapered_pesto += Self::calc_tapered_psqt_eval(board, material_each_side, 3, false);
-            eg_tapered_pesto += Self::calc_tapered_psqt_eval(board, material_each_side, 4, false);
-            eg_tapered_pesto += Self::calc_tapered_psqt_eval(board, material_each_side, 5, false);
+            for i in 0..5 {
+                mg_tapered_pesto += Self::calc_tapered_psqt_eval(board, i, true);
+                eg_tapered_pesto += Self::calc_tapered_psqt_eval(board, 0, false);
+            }
             tapered_pesto = ((material_each_side.0 + material_each_side.1 - 2 * piece_value(Piece::King)) as f32 * mg_tapered_pesto + 
             (78 - (material_each_side.0 + material_each_side.1 - 2 * piece_value(Piece::King))) as f32 * eg_tapered_pesto)
             / 78.;
@@ -592,7 +573,7 @@ impl Algorithm {
         evaluation
     }
 
-    fn calc_tapered_psqt_eval(board: &Board, material_each_side: (u32, u32), piece: u8, mg_eg: bool) -> f32 {
+    fn calc_tapered_psqt_eval(board: &Board, piece: u8, mg_eg: bool) -> f32 {
         fn tapered_psqt_calc(
             piece_bitboard: &BitBoard,
             color_bitboard: &BitBoard,
