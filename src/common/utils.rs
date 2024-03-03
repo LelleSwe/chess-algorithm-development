@@ -110,6 +110,8 @@ impl AddAssign for Stats {
 }
 
 impl Div<u32> for Stats {
+    type Output = StatsAverage;
+
     fn div(self, rhs: u32) -> Self::Output {
         StatsAverage {
             alpha_beta_breaks: self.alpha_beta_breaks as f32 / rhs as f32,
@@ -126,8 +128,6 @@ impl Div<u32> for Stats {
             tt_size: self.tt_size as f32 / rhs as f32,
         }
     }
-
-    type Output = StatsAverage;
 }
 #[derive(Default, Debug)]
 // These fields are used through Debug

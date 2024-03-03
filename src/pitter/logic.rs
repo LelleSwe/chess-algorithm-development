@@ -242,7 +242,7 @@ impl Competition {
                 );
 
                 //Whether the game just played should be printed in console.
-                if PRINT_GAME == true {
+                if PRINT_GAME {
                     println!("Game pair played.  Outcome: {:?}", combined_outcome);
                     println!("{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
                 }
