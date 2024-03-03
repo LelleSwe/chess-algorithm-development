@@ -12,6 +12,7 @@ use self::pitter::logic::Competition;
 
 mod algorithms;
 mod common;
+mod modules;
 mod pitter;
 
 //If we should print the moves played and results of each game.

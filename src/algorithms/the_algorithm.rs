@@ -3,14 +3,15 @@ use std::collections::HashMap;
 use chess::{Action, BitBoard, Board, BoardStatus, ChessMove, Color, MoveGen, Piece};
 use tokio::time::{Duration, Instant};
 
-use crate::common::constants::{
-    modules::*,
-    naive_psqt_tables::*,
-    tapered_pesto_psqt_tables::*,
-};
+use crate::algorithms::{draw_checker, eval};
+use crate::common::constants::{modules::*, naive_psqt_tables::*, tapered_pesto_psqt_tables::*};
 use crate::common::utils::{self, module_enabled, piece_value, Stats};
+use crate::modules::search_extensions;
+use crate::modules::skip_bad_moves;
+use crate::modules::transposition_table::{self, TranspositionEntry};
+use crate::modules::{alpha_beta, analyze};
 
-use super::utils::{Evaluation, TranspositionEntry};
+use super::utils::Evaluation;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Algorithm {
@@ -26,6 +27,20 @@ pub(crate) struct Algorithm {
     pub(crate) naive_psqt_queen_hash: HashMap<BitBoard, f32>,
     pub(crate) naive_psqt_knight_hash: HashMap<BitBoard, f32>,
     pub(crate) naive_psqt_bishop_hash: HashMap<BitBoard, f32>,
+}
+
+struct NodeData {
+    evaluation: Evaluation,
+    debug_data: Option<Vec<String>>,
+}
+
+impl NodeData {
+    fn new(evaluation: Evaluation, debug_data: Option<Vec<String>>) -> Self {
+        NodeData {
+            evaluation,
+            debug_data,
+        }
+    }
 }
 
 impl Algorithm {
@@ -59,73 +74,56 @@ impl Algorithm {
         board_played_times_prediction: &mut HashMap<Board, u32>,
         mut mg_incremental_psqt_eval: f32,
         mut eg_incremental_psqt_eval: f32,
-    ) -> Evaluation {
+    ) -> NodeData {
         if depth == 0 {
             stats.leaves_visited += 1;
-            let eval = self.eval(board, board_played_times_prediction, mg_incremental_psqt_eval, eg_incremental_psqt_eval);
+            let eval = self.eval(
+                board,
+                board_played_times_prediction,
+                mg_incremental_psqt_eval,
+                eg_incremental_psqt_eval,
+            );
+
+            let evaluation = Evaluation::new(
+                Some(eval),
+                None,
+                Some(mg_incremental_psqt_eval + eg_incremental_psqt_eval),
+            );
             if module_enabled(self.modules, TRANSPOSITION_TABLE) {
-                let start = Instant::now();
-                self.transposition_table
-                    .insert(*board, TranspositionEntry::new(depth, eval, None));
-                stats.time_for_transposition_access += Instant::now() - start;
-                stats.transposition_table_entries += 1
+                transposition_table::insert_in_transposition_table(
+                    &mut self.transposition_table,
+                    board,
+                    depth,
+                    stats,
+                    evaluation,
+                );
             }
-            return Evaluation::new(Some(eval), None, None, Some(mg_incremental_psqt_eval + eg_incremental_psqt_eval));
+
+            return NodeData::new(evaluation, None);
         }
 
         // Whether we should try to maximise the eval
         let maximise: bool = board.side_to_move() == Color::White;
-        let mut best_evaluation = Evaluation::new(None, None, None, None);
+        let mut best_evaluation = Evaluation::empty();
 
         let legal_moves = MoveGen::new_legal(board);
         let num_legal_moves = legal_moves.len();
         if num_legal_moves == 0 {
-            if board.checkers().popcnt() == 0 {
-                // Is Stalemate, no checking pieces
-                best_evaluation.eval = Some(0.);
-            }
-
-            // If we arrive at here and it is checkmate, then we know that the side playing
-            // has been checkmated.
-
-            best_evaluation.eval = Some(if board.side_to_move() == Color::White {
-                f32::MIN
-            } else {
-                f32::MAX
-            });
-
-            return best_evaluation;
+            best_evaluation.eval = Some(eval::eval_no_legal_moves(board));
+            return NodeData::new(best_evaluation, None);
         }
 
-        //best_evaluation.eval = Some(f32::MIN);
-
-        let mut boards = legal_moves
-            .map(|chess_move| {
-                let board = board.make_move_new(chess_move);
-                let mut transposition_entry = None;
-                if module_enabled(self.modules, TRANSPOSITION_TABLE) {
-                    let start = Instant::now();
-
-                    transposition_entry = self.transposition_table.get(&board).copied();
-
-                    let time_for_transposition_access = Instant::now() - start;
-                    stats.time_for_transposition_access += time_for_transposition_access;
-                }
-                (chess_move, board, transposition_entry)
-            })
-            .collect::<Vec<(ChessMove, Board, Option<TranspositionEntry>)>>();
+        let transposition_table = if module_enabled(self.modules, TRANSPOSITION_TABLE) {
+            Some(&self.transposition_table)
+        } else {
+            None
+        };
+        let mut boards = Self::create_board_list(board, stats, legal_moves, transposition_table);
 
         // Sort by eval
-        boards.sort_by(|board1, board2| {
-            let eval1 = board1.2.map_or(0., |entry| entry.eval);
-            let eval2 = board2.2.map_or(0., |entry| entry.eval);
-            let ordering = eval1.partial_cmp(&eval2).expect("Eval is a valid value");
+        Self::sort_by_eval(maximise, &mut boards);
 
-            if maximise {
-                return ordering.reverse();
-            }
-            ordering
-        });
+        let mut debug_data = None;
 
         for (i, (chess_move, new_board, transposition_entry)) in boards.into_iter().enumerate() {
             if deadline.is_some_and(utils::passed_deadline) {
@@ -133,9 +131,8 @@ impl Algorithm {
                 // We want these contributions to be proportional to the contribution from a single
                 // node on our layer
                 stats.progress_on_next_layer *= 1. / num_legal_moves as f32;
-                stats.progress_on_next_layer +=
-                    i.saturating_sub(1) as f32 / num_legal_moves as f32;
-                return best_evaluation;
+                stats.progress_on_next_layer += i.saturating_sub(1) as f32 / num_legal_moves as f32;
+                return NodeData::new(best_evaluation, None);
             };
 
             if depth > stats.max_depth {
@@ -143,80 +140,53 @@ impl Algorithm {
             }
 
             if module_enabled(self.modules, SKIP_BAD_MOVES)
-                && i as f32 > num_legal_moves as f32 * 1.
+                && skip_bad_moves::should_skip(num_legal_moves, i)
             {
-                return best_evaluation;
+                return NodeData::new(best_evaluation, None);
             }
 
-            let extend_by =
-                if !module_enabled(self.modules, SEARCH_EXTENSIONS) || num_extensions > 3 {
-                    0
-                } else if num_legal_moves == 1 || new_board.checkers().popcnt() >= 2 {
-                    1
-                } else {
-                    0
-                };
+            let search_extensions = module_enabled(self.modules, SEARCH_EXTENSIONS);
+            let extend_by = search_extensions::calculate(
+                num_extensions,
+                num_legal_moves,
+                new_board,
+                search_extensions,
+            );
 
-            let evaluation =
-                if transposition_entry.is_some() && transposition_entry.unwrap().depth >= depth {
-                    stats.transposition_table_accesses += 1;
-                    Evaluation::new(
-                        Some(transposition_entry.unwrap().eval),
-                        transposition_entry.unwrap().next_action,
-                        None,
-                        Some(mg_incremental_psqt_eval + eg_incremental_psqt_eval),
-                    )
-                } else {
-                    board_played_times_prediction.insert(
-                        new_board,
-                        *board_played_times_prediction.get(&new_board).unwrap_or(&0) + 1,
-                    );
-                    let evaluation = self.node_eval_recursive(
-                        &new_board,
-                        depth - 1 + extend_by,
-                        alpha,
-                        beta,
-                        false,
-                        deadline,
-                        stats,
-                        num_extensions + extend_by,
-                        board_played_times_prediction,
-                        mg_incremental_psqt_eval,
-                        eg_incremental_psqt_eval,
-                    );
-                    board_played_times_prediction.insert(
-                        new_board,
-                        *board_played_times_prediction.get(&new_board).unwrap_or(&0) - 1,
-                    );
-                    evaluation
-                };
+            let evaluation = if let Some(transposition_entry) = transposition_entry {
+                transposition_entry.evaluation
+            } else {
+                draw_checker::count_board(board_played_times_prediction, &new_board);
+                let evaluation = self.node_eval_recursive(
+                    &new_board,
+                    depth - 1 + extend_by,
+                    alpha,
+                    beta,
+                    false,
+                    deadline,
+                    stats,
+                    num_extensions + extend_by,
+                    board_played_times_prediction,
+                    mg_incremental_psqt_eval,
+                    eg_incremental_psqt_eval,
+                );
+                draw_checker::uncount_board(board_played_times_prediction, &new_board);
+                debug_data = evaluation.debug_data;
+                evaluation.evaluation
+            };
 
             stats.nodes_visited += 1;
 
             // Replace best_eval if ours is better
-            if evaluation.eval.is_some()
-                && (best_evaluation.eval.is_none()
-                || maximise && evaluation.eval.unwrap() > best_evaluation.eval.unwrap()
-                || !maximise && evaluation.eval.unwrap() < best_evaluation.eval.unwrap())
-            {
+            if eval::new_eval_is_better(maximise, &best_evaluation, &evaluation) {
                 if original && module_enabled(self.modules, ANALYZE) {
-                    let mut vec = Vec::new();
-                    let new_best_move = chess_move.to_string();
-                    let new_best_eval = evaluation.eval;
-                    utils::vector_push_debug!(
-                        vec,
+                    debug_data = Some(analyze::get_debug_data(
                         self.modules,
                         maximise,
-                        best_evaluation.eval,
-                        new_best_move,
-                        new_best_eval,
-                    );
-                    if let Some(Action::MakeMove(previous_best_move)) = best_evaluation.next_action
-                    {
-                        let previous_best_move = previous_best_move.to_string();
-                        utils::vector_push_debug!(vec, previous_best_move);
-                    }
-                    best_evaluation.debug_data = Some(vec);
+                        &best_evaluation,
+                        &chess_move,
+                        &evaluation,
+                    ));
                 }
 
                 best_evaluation.eval = evaluation.eval;
@@ -224,14 +194,7 @@ impl Algorithm {
             }
 
             if module_enabled(self.modules, ALPHA_BETA) {
-                if let Some(eval) = evaluation.eval {
-                    if maximise {
-                        alpha = alpha.max(eval);
-                    } else {
-                        beta = beta.min(eval);
-                    }
-                }
-
+                (alpha, beta) = alpha_beta::calc_new(alpha, beta, maximise, evaluation);
                 if alpha > beta {
                     stats.alpha_beta_breaks += 1;
                     break;
@@ -239,11 +202,7 @@ impl Algorithm {
             }
 
             if module_enabled(self.modules, TAPERED_INCREMENTAL_PESTO_PSQT) {
-                fn calc_increment(
-                    piece_type: Piece,
-                    location: usize,
-                    mg_eg: bool,
-                ) -> f32 {
+                fn calc_increment(piece_type: Piece, location: usize, mg_eg: bool) -> f32 {
                     if mg_eg {
                         TAPERED_MG_PESTO[piece_type.to_index()][location]
                     } else {
@@ -261,28 +220,35 @@ impl Algorithm {
                 let mut eg_incremental_psqt_eval_change = 0.;
                 if mg_incremental_psqt_eval_change == 0. || eg_incremental_psqt_eval_change == 0. {
                     for i in 0..5 {
-                        mg_incremental_psqt_eval_change += Self::calc_tapered_psqt_eval(board, i, true);
-                        mg_incremental_psqt_eval_change += Self::calc_tapered_psqt_eval(board, i, false);
+                        mg_incremental_psqt_eval_change +=
+                            Self::calc_tapered_psqt_eval(board, i, true);
+                        mg_incremental_psqt_eval_change +=
+                            Self::calc_tapered_psqt_eval(board, i, false);
                     }
                 } else {
                     //Remove the eval from the previous square we stood on.
                     let source: usize = (56 - chess_move.get_source().to_int()
                         + 2 * (chess_move.get_source().to_int() % 8))
                         as usize;
-                    mg_incremental_psqt_eval_change += calc_increment(moved_piece_type, source, true);
-                    eg_incremental_psqt_eval_change += calc_increment(moved_piece_type, source, false);
+                    mg_incremental_psqt_eval_change +=
+                        calc_increment(moved_piece_type, source, true);
+                    eg_incremental_psqt_eval_change +=
+                        calc_increment(moved_piece_type, source, false);
 
                     //Increase the eval at the destination
                     let dest: usize = (56 - chess_move.get_dest().to_int()
                         + 2 * (chess_move.get_dest().to_int() % 8))
                         as usize;
                     mg_incremental_psqt_eval_change += calc_increment(moved_piece_type, dest, true);
-                    eg_incremental_psqt_eval_change += calc_increment(moved_piece_type, dest, false);
+                    eg_incremental_psqt_eval_change +=
+                        calc_increment(moved_piece_type, dest, false);
 
-                    //Decrement enemy eval from potetntial capture
+                    // Decrement enemy eval from potential capture
                     if let Some(attacked_piece_type) = board.piece_on(chess_move.get_dest()) {
-                        mg_incremental_psqt_eval_change += calc_increment(attacked_piece_type, dest, true);
-                        eg_incremental_psqt_eval_change += calc_increment(attacked_piece_type, dest, false);
+                        mg_incremental_psqt_eval_change +=
+                            calc_increment(attacked_piece_type, dest, true);
+                        eg_incremental_psqt_eval_change +=
+                            calc_increment(attacked_piece_type, dest, false);
                     }
                 }
                 mg_incremental_psqt_eval += mg_incremental_psqt_eval_change * multiplier as f32;
@@ -293,25 +259,70 @@ impl Algorithm {
         }
 
         if module_enabled(self.modules, TRANSPOSITION_TABLE) && depth >= 3 {
-            if let Some(best_eval) = best_evaluation.eval {
-                let start = Instant::now();
-                self.transposition_table.insert(
-                    *board,
-                    TranspositionEntry::new(depth, best_eval, best_evaluation.next_action),
-                );
-                stats.time_for_transposition_access += Instant::now() - start;
-            }
-            stats.transposition_table_entries += 1
+            transposition_table::insert_in_transposition_table(
+                &mut self.transposition_table,
+                board,
+                depth,
+                stats,
+                best_evaluation,
+            );
         }
 
-        if best_evaluation.debug_data.is_some() {
-            let mut debug_data = best_evaluation.debug_data.take().unwrap();
+        if debug_data.is_some() {
+            let mut debug_data_unwrapped = debug_data.unwrap();
             if let Some(Action::MakeMove(next_move)) = best_evaluation.next_action {
-                utils::vector_push_debug!(debug_data, best_evaluation.eval, next_move.to_string(),);
-                best_evaluation.debug_data = Some(debug_data);
+                utils::vector_push_debug!(
+                    debug_data_unwrapped,
+                    best_evaluation.eval,
+                    next_move.to_string(),
+                );
             }
+            debug_data = Some(debug_data_unwrapped);
         }
-        best_evaluation
+        NodeData::new(best_evaluation, debug_data)
+    }
+
+    fn create_board_list(
+        board: &Board,
+        stats: &mut Stats,
+        legal_moves: MoveGen,
+        transposition_table: Option<&HashMap<Board, TranspositionEntry>>,
+    ) -> Vec<(ChessMove, Board, Option<TranspositionEntry>)> {
+        legal_moves
+            .map(|chess_move| {
+                let board = board.make_move_new(chess_move);
+                let mut transposition_entry = None;
+                if let Some(transposition_table) = transposition_table {
+                    transposition_entry = transposition_table::get_transposition_entry(
+                        transposition_table,
+                        stats,
+                        &board,
+                    );
+                }
+                (chess_move, board, transposition_entry)
+            })
+            .collect::<Vec<(ChessMove, Board, Option<TranspositionEntry>)>>()
+    }
+
+    fn sort_by_eval(maximise: bool, boards: &mut [(ChessMove, Board, Option<TranspositionEntry>)]) {
+        boards.sort_by(|board1, board2| {
+            let eval1 = if let Some(entry) = board1.2 {
+                entry.evaluation.eval.unwrap_or_default()
+            } else {
+                0.
+            };
+            let eval2 = if let Some(entry) = board2.2 {
+                entry.evaluation.eval.unwrap_or_default()
+            } else {
+                0.
+            };
+            let ordering = eval1.partial_cmp(&eval2).expect("Eval is a valid value");
+
+            if maximise {
+                return ordering.reverse();
+            }
+            ordering
+        });
     }
 
     fn next_action(
@@ -335,7 +346,7 @@ impl Algorithm {
             0.,
         );
         let analyzer_data = out.debug_data.unwrap_or_default();
-        (out.next_action, analyzer_data, stats)
+        (out.evaluation.next_action, analyzer_data, stats)
     }
 
     pub(crate) fn next_action_iterative_deepening(
@@ -385,7 +396,7 @@ impl Algorithm {
             let new_board = board.make_move_new(chess_move);
             let old_value = *self.board_played_times.get(&new_board).unwrap_or(&0);
             if old_value >= 3 {
-                // Oh no! We should declare draw by three-fold repetition. This is not checked
+                // We should declare draw by three-fold repetition. This is not checked
                 // unless we do this.
                 action = Action::DeclareDraw;
             }
@@ -466,7 +477,7 @@ impl Algorithm {
                 };
             }
 
-            /// Utilizes hashmaps so we don't have to recalculate the entire bonus for all pieces every move. This is slightly faster.
+            /// Utilizes hashmaps so that we don't have to recalculate the entire bonus for all pieces every move. This is slightly faster.
             /// Either calculates native_psqt or takes it from the hashmap if it exists
             fn in_hash_map(
                 piece_bitboard: &BitBoard,
@@ -507,8 +518,13 @@ impl Algorithm {
                 mg_tapered_pesto += Self::calc_tapered_psqt_eval(board, i, true);
                 eg_tapered_pesto += Self::calc_tapered_psqt_eval(board, i, false);
             }
-            tapered_pesto = ((material_each_side.0 + material_each_side.1 - 2 * piece_value(Piece::King)) as f32 * mg_tapered_pesto +
-                (78 - (material_each_side.0 + material_each_side.1 - 2 * piece_value(Piece::King))) as f32 * eg_tapered_pesto)
+            tapered_pesto = ((material_each_side.0 + material_each_side.1
+                - 2 * piece_value(Piece::King)) as f32
+                * mg_tapered_pesto
+                + (78
+                    - (material_each_side.0 + material_each_side.1 - 2 * piece_value(Piece::King)))
+                    as f32
+                    * eg_tapered_pesto)
                 / 78.;
         }
 
@@ -522,22 +538,23 @@ impl Algorithm {
                 let mut bonus: f32 = 0.;
                 let pawn_bitboard: usize = (all_pawn_bitboard & color_bitboard).to_size(0);
                 let king_bitboard: usize = (all_king_bitboard & color_bitboard).to_size(0);
-                //pawn chain, awarding 0.5 eval for each pawn protected by another pawn. Constants should in theory cover an (literal) edge case... I hope.
+                //pawn chain, awarding 0.5 eval for each pawn protected by another pawn. Constants should in theory cover a (literal) edge case... I hope.
                 bonus += 0.5
                     * ((pawn_bitboard & 0xFEFEFEFEFEFEFEFE & (pawn_bitboard << 9)).count_ones()
-                    + (pawn_bitboard & 0x7F7F7F7F7F7F7F7F & (pawn_bitboard << 7)).count_ones())
-                    as f32;
+                        + (pawn_bitboard & 0x7F7F7F7F7F7F7F7F & (pawn_bitboard << 7)).count_ones())
+                        as f32;
 
                 //stacked pawns. -0.5 points per rank containing >1 pawns. By taking the pawn bitboard and operating bitwise AND for another bitboard (integer) where the leftmost rank is filled. This returns all pawns in that rank. By bitshifting we can choose rank. Additionally by counting we get number of pawns. We then remove 1 as we only want to know if there are >1 pawn. If there is, subtract 0.5 points per extra pawn.
                 for i in 0..7 {
                     //constant 0x8080808080808080: entire first rank.
                     bonus -= 0.5
                         * ((pawn_bitboard & (0x8080808080808080 >> i)).count_ones() as f32 - 1.)
-                        .max(0.);
+                            .max(0.);
                 }
 
                 //king safety. Outer 3 pawns get +1 eval bonus per pawn if king is behind them. King bitboard required is either ..X..... or ......X.
-                bonus += ((king_bitboard & 0x40).count_ones() * (pawn_bitboard & 0x80E000).count_ones()
+                bonus += ((king_bitboard & 0x40).count_ones()
+                    * (pawn_bitboard & 0x80E000).count_ones()
                     + (king_bitboard & 0x4).count_ones() * (pawn_bitboard & 0x1070000).count_ones())
                     as f32;
                 bonus
@@ -558,8 +575,12 @@ impl Algorithm {
 
         let mut incremental_psqt_eval: f32 = 0.;
         if module_enabled(self.modules, TAPERED_INCREMENTAL_PESTO_PSQT) {
-            incremental_psqt_eval = (material_each_side.0 + material_each_side.1 - 2 * piece_value(Piece::King)) as f32 * mg_incremental_psqt_eval
-                + (78 - material_each_side.0 + material_each_side.1 - 2 * piece_value(Piece::King)) as f32 * eg_incremental_psqt_eval
+            incremental_psqt_eval = (material_each_side.0 + material_each_side.1
+                - 2 * piece_value(Piece::King)) as f32
+                * mg_incremental_psqt_eval
+                + (78 - material_each_side.0 + material_each_side.1 - 2 * piece_value(Piece::King))
+                    as f32
+                    * eg_incremental_psqt_eval
         }
 
         let evaluation: f32 = controlled_squares as f32 / 20.
@@ -591,7 +612,8 @@ impl Algorithm {
                     // and we (hopefully?) linerarly transition from one to the other, depending on material value.
                     bonus += ((piece_bitboard & color_bitboard)
                         .reverse_colors()
-                        .to_size(i as u8) & 1) as f32
+                        .to_size(i as u8)
+                        & 1) as f32
                         * TAPERED_MG_PESTO[piece_index][i];
                 }
                 bonus
@@ -599,7 +621,8 @@ impl Algorithm {
                 for i in 0..63 {
                     bonus += ((piece_bitboard & color_bitboard)
                         .reverse_colors()
-                        .to_size(i as u8) & 1) as f32
+                        .to_size(i as u8)
+                        & 1) as f32
                         * TAPERED_EG_PESTO[piece_index][i];
                 }
                 bonus
@@ -612,7 +635,7 @@ impl Algorithm {
                     $board.pieces(Piece::$piece),
                     $board.color_combined($board.side_to_move()),
                     $index,
-                    $mg_eg
+                    $mg_eg,
                 )
             };
         }
@@ -623,7 +646,7 @@ impl Algorithm {
             3 => tapered_psqt_calc!(board, Rook, 3, mg_eg),
             4 => tapered_psqt_calc!(board, Queen, 4, mg_eg),
             5 => tapered_psqt_calc!(board, King, 5, mg_eg),
-            6_u8..=u8::MAX => unimplemented!()
+            6_u8..=u8::MAX => unimplemented!(),
         }
     }
 

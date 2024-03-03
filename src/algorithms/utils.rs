@@ -1,42 +1,34 @@
 use chess::Action;
 
-#[derive(Debug, Copy, Clone)]
-pub(super) struct TranspositionEntry {
-    pub(super) depth: u32,
-    pub(super) eval: f32,
-    pub(super) next_action: Option<Action>,
-}
-
-impl TranspositionEntry {
-    pub(super) fn new(depth: u32, eval: f32, next_action: Option<Action>) -> Self {
-        TranspositionEntry {
-            depth,
-            eval,
-            next_action,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub(super) struct Evaluation {
-    pub(super) debug_data: Option<Vec<String>>,
-    pub(super) eval: Option<f32>,
-    pub(super) next_action: Option<Action>,
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub(crate) struct Evaluation {
+    // pub(super) debug_data: Option<Vec<String>>,
+    pub(crate) eval: Option<f32>,
+    pub(crate) next_action: Option<Action>,
     pub(super) incremental_psqt_eval: Option<f32>,
 }
 
 impl Evaluation {
-    pub(super) fn new(
+    pub(crate) fn new(
         eval: Option<f32>,
         next_action: Option<Action>,
-        debug_data: Option<Vec<String>>,
+        // debug_data: Option<Vec<String>>,
         incremental_psqt_eval: Option<f32>,
     ) -> Evaluation {
         Evaluation {
             eval,
             next_action,
-            debug_data,
+            // debug_data,
             incremental_psqt_eval,
+        }
+    }
+
+    pub fn empty() -> Evaluation {
+        Evaluation {
+            eval: None,
+            next_action: None,
+            // debug_data: None,
+            incremental_psqt_eval: None,
         }
     }
 }
