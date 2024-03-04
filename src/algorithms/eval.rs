@@ -16,7 +16,7 @@ pub fn eval_no_legal_moves(board: &Board) -> f32 {
         f32::MAX
     };
 }
-pub fn new_eval_is_better(maximise: bool, old: &Evaluation, new: &Evaluation) -> bool {
+pub(crate) fn new_eval_is_better(maximise: bool, old: &Evaluation, new: &Evaluation) -> bool {
     new.eval.is_some()
         && (old.eval.is_none()
             || maximise && new.eval.unwrap() > old.eval.unwrap()
