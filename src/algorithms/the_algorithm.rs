@@ -13,6 +13,7 @@ use crate::modules::{alpha_beta, analyze};
 
 use super::utils::Evaluation;
 
+
 #[derive(Clone, Debug)]
 pub(crate) struct Algorithm {
     pub(crate) modules: u32,

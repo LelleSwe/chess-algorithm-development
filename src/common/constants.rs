@@ -11,6 +11,8 @@ pub(crate) mod modules {
     pub(crate) const TAPERED_INCREMENTAL_PESTO_PSQT: u32 = 1 << 9;
 }
 
+pub(crate) const NUMBER_OF_MODULES: u32 = 9;
+
 //NAIVE_PSQT TABLES
 pub(crate) mod naive_psqt_tables {
     #[rustfmt::skip]

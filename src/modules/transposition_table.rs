@@ -9,16 +9,16 @@ use crate::common::utils::Stats;
 #[derive(Debug, Copy, Clone)]
 pub struct TranspositionEntry {
     pub depth: u32,
-    pub evaluation: Evaluation,
+    pub(crate) evaluation: Evaluation,
 }
 
 impl TranspositionEntry {
-    pub fn new(depth: u32, evaluation: Evaluation) -> Self {
+    pub(crate) fn new(depth: u32, evaluation: Evaluation) -> Self {
         TranspositionEntry { depth, evaluation }
     }
 }
 
-pub fn insert_in_transposition_table(
+pub(crate) fn insert_in_transposition_table(
     transposition_table: &mut HashMap<Board, TranspositionEntry>,
     board: &Board,
     depth: u32,
@@ -31,7 +31,7 @@ pub fn insert_in_transposition_table(
     stats.transposition_table_entries += 1
 }
 
-pub fn get_transposition_entry(
+pub(crate) fn get_transposition_entry(
     transposition_table: &HashMap<Board, TranspositionEntry>,
     stats: &mut Stats,
     board: &Board,

@@ -5,6 +5,7 @@ use tokio::time::{Duration, Instant};
 use chess::{Action, Board, Color, Game, GameResult};
 use tokio::sync::Mutex;
 
+
 use crate::algorithms::the_algorithm::Algorithm;
 use crate::common::constants::modules::ANALYZE;
 use crate::common::utils::{self, Stats};
@@ -243,8 +244,12 @@ impl Competition {
 
                 //Whether the game just played should be printed in console.
                 if PRINT_GAME {
-                    println!("Game pair played.  Outcome: {:?}", combined_outcome);
-                    println!("{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
+                    //println!("Game pair played.  Outcome: {:?}", combined_outcome);
+                    //println!("{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
+                    let mut buf = format!("\nGame pair played.  Outcome: {:?}", combined_outcome);
+                    buf += &format!("\n{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
+                    let buf = buf.as_bytes();
+                    let _ = crate::io::write_result(buf, "./output.txt");
                 }
 
                 results.lock().await.register_game_outcome(combined_outcome);
@@ -262,7 +267,7 @@ impl Competition {
             tasks.push(task);
         }
         for task in tasks {
-            task.await;
+            let _ = task.await;
         }
         let sum_stats = sum_stats.lock().await;
         let avg_stats = (
@@ -270,8 +275,19 @@ impl Competition {
             sum_stats.1 / sum_stats.1.num_plies,
         );
 
-        println!("Stats for algo1: {:#?}", avg_stats.0);
-        println!("Stats for algo2: {:#?}", avg_stats.1);
+        //I don't know why I have to do this middle step terribleness, 
+        //but for some reason it won't compile otherwise.
+        let algo1stats = format!("Stats for algo1: {:#?}", avg_stats.0);
+        let algo1stats = algo1stats.as_bytes();
+        let algo2stats = format!("Stats for algo2: {:#?}", avg_stats.1);
+        let algo2stats = algo2stats.as_bytes();
+        
+        //Marking that the result from these calls won't be used.
+        let _ = crate::io::write_result(algo1stats, "./output.txt");
+        let _ = crate::io::write_result(algo2stats, "./output.txt");
+
+        //println!("Stats for algo1: {:#?}", avg_stats.0);
+        //println!("Stats for algo2: {:#?}", avg_stats.1);
 
         // Gives E0597 otherwise
         #[allow(clippy::let_and_return)]
@@ -359,7 +375,7 @@ impl Competition {
             i += 1;
         }
 
-        dbg!(&self.algo1.board_played_times.values());
-        dbg!(&self.algo2.board_played_times.values());
+        /*let _ = write_result(stringify!(&self.algo1.board_played_times.values()).as_bytes(), "./output.txt");
+        let _ = write_result(stringify!(&self.algo2.board_played_times.values()).as_bytes(), "./output.txt");*/
     }
 }
