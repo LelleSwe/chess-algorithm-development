@@ -19,7 +19,7 @@ mod pitter;
 mod io;
 
 //If we should print the moves played and results of each game.
-pub(crate) const PRINT_GAME: bool = false;
+pub(crate) const PRINT_GAME: bool = true;
 //If we should test all possible pairs of combinations.
 const TEST_ALL_PAIRS: bool = true;
 

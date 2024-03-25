@@ -9,7 +9,6 @@ use tokio::sync::Mutex;
 use crate::algorithms::the_algorithm::Algorithm;
 use crate::common::constants::modules::ANALYZE;
 use crate::common::utils::{self, Stats};
-use crate::io::write_result;
 use crate::PRINT_GAME;
 
 pub(crate) struct Competition {
@@ -245,8 +244,12 @@ impl Competition {
 
                 //Whether the game just played should be printed in console.
                 if PRINT_GAME {
-                    println!("Game pair played.  Outcome: {:?}", combined_outcome);
-                    println!("{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
+                    //println!("Game pair played.  Outcome: {:?}", combined_outcome);
+                    //println!("{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
+                    let mut buf = format!("\nGame pair played.  Outcome: {:?}", combined_outcome);
+                    buf += &format!("\n{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
+                    let buf = buf.as_bytes();
+                    let _ = crate::io::write_result(buf, "./output.txt");
                 }
 
                 results.lock().await.register_game_outcome(combined_outcome);
@@ -264,7 +267,7 @@ impl Competition {
             tasks.push(task);
         }
         for task in tasks {
-            task.await;
+            let _ = task.await;
         }
         let sum_stats = sum_stats.lock().await;
         let avg_stats = (
