@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use chess::{Action, BitBoard, Board, BoardStatus, ChessMove, Color, MoveGen, Piece};
+use serde::{Deserialize, Serialize};
 use tokio::time::{Duration, Instant};
 
 use crate::algorithms::{draw_checker, eval};
@@ -12,6 +13,7 @@ use crate::modules::transposition_table::{self, TranspositionEntry};
 use crate::modules::{alpha_beta, analyze};
 
 use super::utils::Evaluation;
+
 
 #[derive(Clone, Debug)]
 pub(crate) struct Algorithm {

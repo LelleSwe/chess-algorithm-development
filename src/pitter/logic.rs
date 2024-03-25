@@ -5,9 +5,12 @@ use tokio::time::{Duration, Instant};
 use chess::{Action, Board, Color, Game, GameResult};
 use tokio::sync::Mutex;
 
+use serde::{Serialize, Deserialize};
+
 use crate::algorithms::the_algorithm::Algorithm;
 use crate::common::constants::modules::ANALYZE;
 use crate::common::utils::{self, Stats};
+use crate::io::write_result;
 use crate::PRINT_GAME;
 
 pub(crate) struct Competition {
@@ -62,7 +65,7 @@ pub(crate) enum GameOutcome {
 }
 
 #[allow(unused_assignments)]
-#[derive(Default, Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 pub(crate) struct CompetitionResults {
     /// How many pairs of games that Algo1 wins from both positions
     algo1_wins: usize,
@@ -270,8 +273,19 @@ impl Competition {
             sum_stats.1 / sum_stats.1.num_plies,
         );
 
-        println!("Stats for algo1: {:#?}", avg_stats.0);
-        println!("Stats for algo2: {:#?}", avg_stats.1);
+        //I don't know why I have to do this middle step terribleness, 
+        //but for some reason it won't compile otherwise.
+        let algo1stats = format!("\nStats for algo1: {:#?}", avg_stats.0);
+        let algo1stats = algo1stats.as_bytes();
+        let algo2stats = format!("Stats for algo2: {:#?}", avg_stats.1);
+        let algo2stats = algo2stats.as_bytes();
+        
+        //Marking that the result from these calls won't be used.
+        let _ = crate::io::write_result(algo1stats, "./output.txt");
+        let _ = crate::io::write_result(algo2stats, "./output.txt");
+
+        //println!("Stats for algo1: {:#?}", avg_stats.0);
+        //println!("Stats for algo2: {:#?}", avg_stats.1);
 
         // Gives E0597 otherwise
         #[allow(clippy::let_and_return)]
@@ -359,7 +373,7 @@ impl Competition {
             i += 1;
         }
 
-        dbg!(&self.algo1.board_played_times.values());
-        dbg!(&self.algo2.board_played_times.values());
+        /*let _ = write_result(stringify!(&self.algo1.board_played_times.values()).as_bytes(), "./output.txt");
+        let _ = write_result(stringify!(&self.algo2.board_played_times.values()).as_bytes(), "./output.txt");*/
     }
 }
