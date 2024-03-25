@@ -5,7 +5,6 @@ use tokio::time::{Duration, Instant};
 use chess::{Action, Board, Color, Game, GameResult};
 use tokio::sync::Mutex;
 
-use serde::{Serialize, Deserialize};
 
 use crate::algorithms::the_algorithm::Algorithm;
 use crate::common::constants::modules::ANALYZE;
@@ -65,7 +64,7 @@ pub(crate) enum GameOutcome {
 }
 
 #[allow(unused_assignments)]
-#[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone)]
 pub(crate) struct CompetitionResults {
     /// How many pairs of games that Algo1 wins from both positions
     algo1_wins: usize,
@@ -275,7 +274,7 @@ impl Competition {
 
         //I don't know why I have to do this middle step terribleness, 
         //but for some reason it won't compile otherwise.
-        let algo1stats = format!("\nStats for algo1: {:#?}", avg_stats.0);
+        let algo1stats = format!("Stats for algo1: {:#?}", avg_stats.0);
         let algo1stats = algo1stats.as_bytes();
         let algo2stats = format!("Stats for algo2: {:#?}", avg_stats.1);
         let algo2stats = algo2stats.as_bytes();

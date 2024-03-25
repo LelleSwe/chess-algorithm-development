@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use chess::{Action, BitBoard, Board, BoardStatus, ChessMove, Color, MoveGen, Piece};
-use serde::{Deserialize, Serialize};
 use tokio::time::{Duration, Instant};
 
 use crate::algorithms::{draw_checker, eval};
