@@ -5,11 +5,9 @@ use tokio::time::{Duration, Instant};
 use chess::{Action, Board, Color, Game, GameResult};
 use tokio::sync::Mutex;
 
-
 use crate::algorithms::the_algorithm::Algorithm;
 use crate::common::constants::modules::ANALYZE;
 use crate::common::utils::{self, Stats};
-use crate::PRINT_GAME;
 
 pub(crate) struct Competition {
     pub(crate) algo1: Algorithm,
@@ -66,21 +64,21 @@ pub(crate) enum GameOutcome {
 #[derive(Default, Debug, Copy, Clone)]
 pub(crate) struct CompetitionResults {
     /// How many pairs of games that Algo1 wins from both positions
-    algo1_wins: usize,
+    pub algo1_wins: usize,
     /// How many pairs of games that Algo2 wins from both positions
-    algo2_wins: usize,
+    pub algo2_wins: usize,
     /// Pairs of games that draw no matter which algo is playing which side
-    draws: usize,
+    pub draws: usize,
     /// Same color wins no matter what algo is playing it
-    inconclusive_same_color_win: usize,
+    pub inconclusive_same_color_win: usize,
 
     /// One of the games went on for too long
-    inconclusive_too_long: usize,
+    pub inconclusive_too_long: usize,
 
     /// Pairs of games that wins when Algo1 is playing and draw on the other
-    algo1_half_wins: usize,
+    pub algo1_half_wins: usize,
     /// Pairs of games that wins when Algo2 is playing and draw on the other
-    algo2_half_wins: usize,
+    pub algo2_half_wins: usize,
 }
 
 #[derive(Debug, Default)]
@@ -172,7 +170,7 @@ impl Competition {
                 Action::OfferDraw(color) => game.offer_draw(color),
                 Action::AcceptDraw => game.accept_draw(),
                 Action::DeclareDraw => {
-                    // The chess crate one is really bad and wrong
+                    // The chess crate one is terrible and wrong
                     declared_draw = true;
                     true
                 }
@@ -242,16 +240,6 @@ impl Competition {
                     game_pair_info.1.outcome,
                 );
 
-                //Whether the game just played should be printed in console.
-                if PRINT_GAME {
-                    //println!("Game pair played.  Outcome: {:?}", combined_outcome);
-                    //println!("{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
-                    let mut buf = format!("\nGame pair played.  Outcome: {:?}", combined_outcome);
-                    buf += &format!("\n{}", utils::to_pgn(&game_pair_info.0.game.unwrap()));
-                    let buf = buf.as_bytes();
-                    let _ = crate::io::write_result(buf, "./output.txt");
-                }
-
                 results.lock().await.register_game_outcome(combined_outcome);
 
                 let mut locked_stats = sum_stats.lock().await;
@@ -269,22 +257,11 @@ impl Competition {
         for task in tasks {
             let _ = task.await;
         }
-        let sum_stats = sum_stats.lock().await;
-        let avg_stats = (
-            sum_stats.0 / sum_stats.0.num_plies,
-            sum_stats.1 / sum_stats.1.num_plies,
-        );
-
-        //I don't know why I have to do this middle step terribleness, 
-        //but for some reason it won't compile otherwise.
-        let algo1stats = format!("Stats for algo1: {:#?}", avg_stats.0);
-        let algo1stats = algo1stats.as_bytes();
-        let algo2stats = format!("Stats for algo2: {:#?}", avg_stats.1);
-        let algo2stats = algo2stats.as_bytes();
-        
-        //Marking that the result from these calls won't be used.
-        let _ = crate::io::write_result(algo1stats, "./output.txt");
-        let _ = crate::io::write_result(algo2stats, "./output.txt");
+        // let sum_stats = sum_stats.lock().await;
+        // let avg_stats = (
+        //     sum_stats.0 / sum_stats.0.num_plies,
+        //     sum_stats.1 / sum_stats.1.num_plies,
+        // );
 
         //println!("Stats for algo1: {:#?}", avg_stats.0);
         //println!("Stats for algo2: {:#?}", avg_stats.1);
@@ -343,7 +320,9 @@ impl Competition {
         self.algo1.reset();
         self.algo2.reset();
         for chess_move in game.0.game.as_ref().unwrap().actions() {
-            let Action::MakeMove(chess_move) = chess_move else {continue};
+            let Action::MakeMove(chess_move) = chess_move else {
+                continue;
+            };
 
             let start = Instant::now();
             let mut algo_out = if i % 2 == 1 {

@@ -13,5 +13,5 @@ pub(crate) fn calc_new(
             beta = beta.min(eval);
         }
     }
-    return (alpha, beta);
+    (alpha, beta)
 }

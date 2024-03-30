@@ -38,7 +38,7 @@ pub(crate) fn get_transposition_entry(
 ) -> Option<TranspositionEntry> {
     let start = Instant::now();
 
-    let transposition_entry = transposition_table.get(&board).copied();
+    let transposition_entry = transposition_table.get(board).copied();
 
     let time_for_transposition_access = Instant::now() - start;
     stats.time_for_transposition_access += time_for_transposition_access;

@@ -26,5 +26,5 @@ pub(crate) fn get_debug_data(
         let previous_best_move = previous_best_move.to_string();
         utils::vector_push_debug!(vec, previous_best_move);
     }
-    return vec;
+    vec
 }

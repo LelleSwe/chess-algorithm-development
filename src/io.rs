@@ -1,18 +1,22 @@
-use std::{fs::OpenOptions, io::{self, prelude::*}};
+use std::{fs::OpenOptions, io::prelude::*};
 
 use crate::common::constants::NUMBER_OF_MODULES;
 
 pub(crate) fn write_result(buf: &[u8], file: &str) -> std::io::Result<()> {
-    let mut file = OpenOptions::new().write(true).create(true).append(true).open(file).unwrap();
-    file.write(buf)?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file)
+        .unwrap();
+    file.write_all(buf)?;
     Ok(())
 }
 
-pub(crate)fn modules_to_string(modules: u32) -> String {
+pub(crate) fn modules_to_string(modules: u32) -> String {
     let mut start: bool = true;
     let mut output: String = "".to_string();
     //For loop ranges is all available modules index. +1 because we need inclusive.
-    for i in 0..NUMBER_OF_MODULES+1 {
+    for i in 0..NUMBER_OF_MODULES + 1 {
         if (modules & (1 << i)).count_ones() == 1 {
             let module_string = match i {
                 0 => "ANALYZE",
@@ -25,10 +29,10 @@ pub(crate)fn modules_to_string(modules: u32) -> String {
                 7 => "PAWN_STRUCTURE",
                 8 => "TAPERED_EVERY_PESTO_PSQT",
                 9 => "TAPERED_INCREMENTAL_PESTO_PSQT",
-                _ => "INVALID MODULE DETECTED"
+                _ => "INVALID MODULE DETECTED",
             };
             if !start {
-                output = output + &", " + module_string;
+                output = output + ", " + module_string;
             } else {
                 start = false;
                 output = module_string.to_string();
