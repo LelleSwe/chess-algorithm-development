@@ -257,14 +257,14 @@ impl Competition {
         for task in tasks {
             let _ = task.await;
         }
-        // let sum_stats = sum_stats.lock().await;
-        // let avg_stats = (
-        //     sum_stats.0 / sum_stats.0.num_plies,
-        //     sum_stats.1 / sum_stats.1.num_plies,
-        // );
+        let sum_stats = sum_stats.lock().await;
+        let avg_stats = (
+            sum_stats.0 / sum_stats.0.num_plies,
+            sum_stats.1 / sum_stats.1.num_plies,
+        );
 
-        //println!("Stats for algo1: {:#?}", avg_stats.0);
-        //println!("Stats for algo2: {:#?}", avg_stats.1);
+        println!("Stats for algo1: {:#?}", avg_stats.0);
+        println!("Stats for algo2: {:#?}", avg_stats.1);
 
         // Gives E0597 otherwise
         #[allow(clippy::let_and_return)]

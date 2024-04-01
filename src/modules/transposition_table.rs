@@ -19,27 +19,29 @@ impl TranspositionEntry {
 }
 
 pub(crate) fn insert_in_transposition_table(
-    transposition_table: &mut HashMap<Board, TranspositionEntry>,
+    transposition_table: &mut HashMap<u64, TranspositionEntry>,
     board: &Board,
     depth: u32,
     stats: &mut Stats,
     evaluation: Evaluation,
 ) {
     let start = Instant::now();
-    transposition_table.insert(*board, TranspositionEntry::new(depth, evaluation));
+    transposition_table.insert(board.get_hash(), TranspositionEntry::new(depth, evaluation));
     stats.time_for_transposition_access += Instant::now() - start;
     stats.transposition_table_entries += 1
 }
 
 pub(crate) fn get_transposition_entry(
-    transposition_table: &HashMap<Board, TranspositionEntry>,
+    transposition_table: &HashMap<u64, TranspositionEntry>,
     stats: &mut Stats,
     board: &Board,
 ) -> Option<TranspositionEntry> {
     let start = Instant::now();
 
-    let transposition_entry = transposition_table.get(board).copied();
-
+    let transposition_entry = transposition_table.get(&board.get_hash()).copied();
+    if transposition_entry.is_some() {
+        stats.transposition_table_accesses += 1;
+    }
     let time_for_transposition_access = Instant::now() - start;
     stats.time_for_transposition_access += time_for_transposition_access;
 

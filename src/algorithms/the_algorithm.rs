@@ -6,18 +6,16 @@ use tokio::time::{Duration, Instant};
 use crate::algorithms::{draw_checker, eval};
 use crate::common::constants::{modules::*, naive_psqt_tables::*, tapered_pesto_psqt_tables::*};
 use crate::common::utils::{self, module_enabled, piece_value, Stats};
+use crate::modules::{alpha_beta, analyze};
 use crate::modules::search_extensions;
 use crate::modules::skip_bad_moves;
 use crate::modules::transposition_table::{self, TranspositionEntry};
-use crate::modules::{alpha_beta, analyze};
 
 use super::utils::Evaluation;
-
 
 #[derive(Clone, Debug)]
 pub(crate) struct Algorithm {
     pub(crate) modules: u32,
-    transposition_table: HashMap<Board, TranspositionEntry>,
     pub(crate) time_per_move: Duration,
     /// Number of times that a given board has been played
     pub(crate) board_played_times: HashMap<Board, u32>,
@@ -48,7 +46,6 @@ impl Algorithm {
     pub(crate) fn new(modules: u32, time_per_move: Duration) -> Self {
         Self {
             modules,
-            transposition_table: HashMap::with_capacity(45),
             time_per_move,
             board_played_times: HashMap::new(),
             pawn_hash: HashMap::new(),
@@ -72,9 +69,10 @@ impl Algorithm {
         deadline: Option<Instant>,
         stats: &mut Stats,
         num_extensions: u32,
-        board_played_times_prediction: &mut HashMap<Board, u32>,
+        board_played_times_prediction: &mut HashMap<u64, u32>,
         mut mg_incremental_psqt_eval: f32,
         mut eg_incremental_psqt_eval: f32,
+        transposition_table: &mut HashMap<u64, TranspositionEntry>,
     ) -> NodeData {
         if depth == 0 {
             stats.leaves_visited += 1;
@@ -90,15 +88,15 @@ impl Algorithm {
                 None,
                 Some(mg_incremental_psqt_eval + eg_incremental_psqt_eval),
             );
-            if module_enabled(self.modules, TRANSPOSITION_TABLE) {
-                transposition_table::insert_in_transposition_table(
-                    &mut self.transposition_table,
-                    board,
-                    depth,
-                    stats,
-                    evaluation,
-                );
-            }
+            // if module_enabled(self.modules, TRANSPOSITION_TABLE) {
+            //     transposition_table::insert_in_transposition_table(
+            //         transposition_table,
+            //         board,
+            //         depth,
+            //         stats,
+            //         evaluation,
+            //     );
+            // }
 
             return NodeData::new(evaluation, None);
         }
@@ -114,12 +112,16 @@ impl Algorithm {
             return NodeData::new(best_evaluation, None);
         }
 
-        let transposition_table = if module_enabled(self.modules, TRANSPOSITION_TABLE) {
-            Some(&self.transposition_table)
-        } else {
-            None
-        };
-        let mut boards = Self::create_board_list(board, stats, legal_moves, transposition_table);
+        let mut boards = Self::create_board_list(
+            board,
+            stats,
+            legal_moves,
+            if module_enabled(self.modules, TRANSPOSITION_TABLE) {
+                Some(transposition_table)
+            } else {
+                None
+            },
+        );
 
         // Sort by eval
         Self::sort_by_eval(maximise, &mut boards);
@@ -146,16 +148,14 @@ impl Algorithm {
                 return NodeData::new(best_evaluation, None);
             }
 
-            let search_extensions = module_enabled(self.modules, SEARCH_EXTENSIONS);
-            let extend_by = search_extensions::calculate(
-                num_extensions,
-                num_legal_moves,
-                new_board,
-                search_extensions,
-            );
+            let extend_by = if module_enabled(self.modules, SEARCH_EXTENSIONS) {
+                search_extensions::calculate(num_extensions, num_legal_moves, new_board)
+            } else {
+                0
+            };
 
-            let evaluation = if let Some(transposition_entry) = transposition_entry {
-                transposition_entry.evaluation
+            let evaluation = if transposition_entry.is_some_and(|entry| entry.depth >= depth) {
+                transposition_entry.unwrap().evaluation
             } else {
                 draw_checker::count_board(board_played_times_prediction, &new_board);
                 let evaluation = self.node_eval_recursive(
@@ -170,6 +170,7 @@ impl Algorithm {
                     board_played_times_prediction,
                     mg_incremental_psqt_eval,
                     eg_incremental_psqt_eval,
+                    transposition_table,
                 );
                 draw_checker::uncount_board(board_played_times_prediction, &new_board);
                 debug_data = evaluation.debug_data;
@@ -259,9 +260,9 @@ impl Algorithm {
                 Some(mg_incremental_psqt_eval + eg_incremental_psqt_eval);
         }
 
-        if module_enabled(self.modules, TRANSPOSITION_TABLE) && depth >= 3 {
+        if module_enabled(self.modules, TRANSPOSITION_TABLE) {
             transposition_table::insert_in_transposition_table(
-                &mut self.transposition_table,
+                transposition_table,
                 board,
                 depth,
                 stats,
@@ -287,7 +288,7 @@ impl Algorithm {
         board: &Board,
         stats: &mut Stats,
         legal_moves: MoveGen,
-        transposition_table: Option<&HashMap<Board, TranspositionEntry>>,
+        transposition_table: Option<&HashMap<u64, TranspositionEntry>>,
     ) -> Vec<(ChessMove, Board, Option<TranspositionEntry>)> {
         legal_moves
             .map(|chess_move| {
@@ -331,6 +332,7 @@ impl Algorithm {
         board: &Board,
         depth: u32,
         deadline: Option<Instant>,
+        transposition_table: &mut HashMap<u64, TranspositionEntry>,
     ) -> (Option<Action>, Vec<String>, Stats) {
         let mut stats = Stats::default();
         let out = self.node_eval_recursive(
@@ -345,6 +347,7 @@ impl Algorithm {
             &mut HashMap::new(),
             0.,
             0.,
+            transposition_table,
         );
         let analyzer_data = out.debug_data.unwrap_or_default();
         (out.evaluation.next_action, analyzer_data, stats)
@@ -360,13 +363,16 @@ impl Algorithm {
             *self.board_played_times.get(board).unwrap_or(&0) + 1,
         );
 
+        let mut transposition_table = HashMap::new();
         // Guarantee that at least the first layer gets done.
         const START_DEPTH: u32 = 1;
-        let mut deepest_complete_output = self.next_action(board, START_DEPTH, None);
+        let mut deepest_complete_output =
+            self.next_action(board, START_DEPTH, None, &mut transposition_table);
         let mut deepest_complete_depth = START_DEPTH;
 
         for depth in (deepest_complete_depth + 1)..=10 {
-            let latest_output = self.next_action(board, depth, Some(deadline));
+            let latest_output =
+                self.next_action(board, depth, Some(deadline), &mut transposition_table);
             if utils::passed_deadline(deadline) {
                 // The cancelled layer is the one with this data
                 deepest_complete_output.2.progress_on_next_layer =
@@ -378,7 +384,6 @@ impl Algorithm {
             }
         }
         deepest_complete_output.2.depth = deepest_complete_depth;
-        deepest_complete_output.2.tt_size = self.transposition_table.len() as u32;
 
         let mut action = match deepest_complete_output.0 {
             Some(action) => action,
@@ -410,7 +415,7 @@ impl Algorithm {
     pub(crate) fn eval(
         &mut self,
         board: &Board,
-        board_played_times_prediction: &HashMap<Board, u32>,
+        board_played_times_prediction: &HashMap<u64, u32>,
         mg_incremental_psqt_eval: f32,
         eg_incremental_psqt_eval: f32,
     ) -> f32 {
@@ -426,7 +431,9 @@ impl Algorithm {
             };
         }
         let board_played_times = *self.board_played_times.get(board).unwrap_or(&0)
-            + *board_played_times_prediction.get(board).unwrap_or(&0);
+            + *board_played_times_prediction
+                .get(&board.get_hash())
+                .unwrap_or(&0);
         if board_played_times >= 2 {
             // This is third time this is played. Draw by three-fold repetition
             return 0.;
@@ -652,7 +659,6 @@ impl Algorithm {
     }
 
     pub(crate) fn reset(&mut self) {
-        self.transposition_table = HashMap::new();
         self.board_played_times = HashMap::new();
         self.pawn_hash = HashMap::new();
         self.naive_psqt_pawn_hash = HashMap::new();

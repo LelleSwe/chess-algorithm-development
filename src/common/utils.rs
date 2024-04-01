@@ -89,7 +89,6 @@ pub(crate) struct Stats {
     pub(crate) transposition_table_entries: u32,
     pub(crate) transposition_table_accesses: u32,
     pub(crate) time_for_transposition_access: Duration,
-    pub(crate) tt_size: u32,
 }
 
 impl AddAssign for Stats {
@@ -105,7 +104,6 @@ impl AddAssign for Stats {
         self.transposition_table_entries += rhs.transposition_table_entries;
         self.transposition_table_accesses += rhs.transposition_table_accesses;
         self.time_for_transposition_access += rhs.time_for_transposition_access;
-        self.tt_size += rhs.tt_size;
     }
 }
 
@@ -125,7 +123,6 @@ impl Div<u32> for Stats {
             transposition_table_entries: self.transposition_table_entries as f32 / rhs as f32,
             transposition_table_accesses: self.transposition_table_accesses as f32 / rhs as f32,
             time_for_transposition_access: self.time_for_transposition_access / rhs,
-            tt_size: self.tt_size as f32 / rhs as f32,
         }
     }
 }
@@ -144,7 +141,6 @@ pub(crate) struct StatsAverage {
     pub(crate) transposition_table_entries: f32,
     pub(crate) transposition_table_accesses: f32,
     pub(crate) time_for_transposition_access: Duration,
-    pub(crate) tt_size: f32,
 }
 
 pub(crate) fn passed_deadline(deadline: Instant) -> bool {

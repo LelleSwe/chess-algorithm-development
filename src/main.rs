@@ -25,7 +25,7 @@ mod pitter;
 //If we should print the moves played and results of each game.
 pub(crate) const PRINT_GAME: bool = true;
 //If we should test all possible pairs of combinations.
-const TEST_ALL_PAIRS: bool = true;
+const TEST_ALL_PAIRS: bool = false;
 
 #[tokio::main]
 async fn main() {
@@ -38,7 +38,7 @@ async fn main() {
         let modules2 = 0;
         let time_per_move1 = Duration::from_micros(2000);
         let time_per_move2 = Duration::from_micros(2000);
-        let game_pairs = 50;
+        let game_pairs = 150;
 
         //Run competition
         let result = do_competition(
@@ -57,7 +57,7 @@ async fn main() {
         );
         let time_per_move1 = Duration::from_micros(2000);
         let time_per_move2 = Duration::from_micros(2000);
-        let game_pairs = 200;
+        let game_pairs = 400;
 
         let mut competitions_run: u32 = 0;
         let mut dp: Vec<Vec<Option<CompetitionResults>>> =
