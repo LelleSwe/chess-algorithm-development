@@ -22,8 +22,6 @@ mod io;
 mod modules;
 mod pitter;
 
-//If we should print the moves played and results of each game.
-pub(crate) const PRINT_GAME: bool = true;
 //If we should test all possible pairs of combinations.
 const TEST_ALL_PAIRS: bool = false;
 
@@ -34,11 +32,11 @@ async fn main() {
         //ALPHA_BETA | ANALYZE | SEARCH_EXTENSIONS | SKIP_BAD_MOVES | SQUARE_CONTROL_METRIC | TRANSPOSITION_TABLE | NAIVE_PSQT | PAWN_STRUCTURE | TAPERED_EVERY_PESTO_PSQT | TAPERED_INCREMENTAL_PESTO_PSQT
         //Put 0 for no modules.
         //Setup modules
-        let modules1 = TRANSPOSITION_TABLE;
-        let modules2 = 0;
+        let modules1 = ALPHA_BETA | TAPERED_EVERY_PESTO_PSQT;
+        let modules2 = ALPHA_BETA;
         let time_per_move1 = Duration::from_micros(2000);
         let time_per_move2 = Duration::from_micros(2000);
-        let game_pairs = 150;
+        let game_pairs = 1000;
 
         //Run competition
         let result = do_competition(
@@ -49,6 +47,10 @@ async fn main() {
             game_pairs,
         )
         .await;
+    
+        println!("Algo 1: {}", io::modules_to_string(modules1));
+        println!("Algo 2: {}", io::modules_to_string(modules2));
+        println!("Game pairs: {}", game_pairs);
         dbg!(result);
     } else {
         println!(

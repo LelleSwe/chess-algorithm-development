@@ -522,7 +522,7 @@ impl Algorithm {
         let mut eg_tapered_pesto: f32 = 0.;
         let mut tapered_pesto: f32 = 0.;
         if module_enabled(self.modules, TAPERED_EVERY_PESTO_PSQT) {
-            for i in 0..5 {
+            for i in 0..5+1 {
                 mg_tapered_pesto += Self::calc_tapered_psqt_eval(board, i, true);
                 eg_tapered_pesto += Self::calc_tapered_psqt_eval(board, i, false);
             }
