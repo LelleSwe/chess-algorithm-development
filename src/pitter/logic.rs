@@ -263,8 +263,13 @@ impl Competition {
             sum_stats.1 / sum_stats.1.num_plies,
         );
 
-        println!("Stats for algo1: {:#?}", avg_stats.0);
-        println!("Stats for algo2: {:#?}", avg_stats.1);
+        let algoo1 = format!("{:#?}", avg_stats.0.nodes_visited);
+        let algoo2 = format!("{:#?}", avg_stats.1.nodes_visited);
+        let buf = algoo1 + &"\t" + &algoo2 + &"\n";
+        let buf = buf.as_bytes();
+        let _ = crate::io::write_result(buf, "./output.txt");
+        //println!("Stats for algo1: {:#?}", avg_stats.0.nodes_visited);
+        //println!("Stats for algo2: {:#?}", avg_stats.1.nodes_visited);
 
         // Gives E0597 otherwise
         #[allow(clippy::let_and_return)]

@@ -34,6 +34,7 @@ async fn main() {
         //ALPHA_BETA | ANALYZE | SEARCH_EXTENSIONS | SKIP_BAD_MOVES | SQUARE_CONTROL_METRIC | TRANSPOSITION_TABLE | NAIVE_PSQT | PAWN_STRUCTURE | TAPERED_EVERY_PESTO_PSQT | TAPERED_INCREMENTAL_PESTO_PSQT
         //Put 0 for no modules.
         //Setup modules
+<<<<<<< Updated upstream
         let modules1 = TRANSPOSITION_TABLE;
         let modules2 = 0;
         let time_per_move1 = Duration::from_micros(2000);
@@ -50,6 +51,30 @@ async fn main() {
         )
         .await;
         dbg!(result);
+=======
+        let modules1 = ALPHA_BETA;
+        let modules2 = 0;
+        let game_pairs = 200;
+
+        for i in 0..100 {
+            let time_per_move1 = Duration::from_micros(500 + i*500);
+            let time_per_move2 = Duration::from_micros(500 + i*500);
+            //Run competition
+            let result = do_competition(
+                modules1,
+                modules2,
+                time_per_move1,
+                time_per_move2,
+                game_pairs,
+            )
+            .await;
+        }
+
+        //println!("Algo 1: {}; Time: {:?}", io::modules_to_string(modules1), time_per_move1);
+        //println!("Algo 2: {}; Time: {:?}", io::modules_to_string(modules2), time_per_move2);
+        println!("Game pairs: {}", game_pairs);
+        //dbg!(result);
+>>>>>>> Stashed changes
     } else {
         println!(
             "Running {} possibilites",
