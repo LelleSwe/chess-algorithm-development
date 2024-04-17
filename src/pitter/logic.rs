@@ -217,7 +217,7 @@ impl Competition {
         (outcome1, outcome2)
     }
 
-    pub(crate) async fn start_competition(self, num_game_pairs: u32) -> CompetitionResults {
+    pub(crate) async fn start_competition(self, num_game_pairs: u32, time_per_move: Duration) -> CompetitionResults {
         if let Some(results) = self.results {
             return results;
         }
@@ -265,7 +265,7 @@ impl Competition {
 
         let algoo1 = format!("{:#?}", avg_stats.0.nodes_visited);
         let algoo2 = format!("{:#?}", avg_stats.1.nodes_visited);
-        let buf = algoo1 + &"\t" + &algoo2 + &"\n";
+        let buf = format!("{}", time_per_move.as_secs_f64()*1000.) + &"\t" + &algoo1 + &"\t" + &algoo2 + &"\n";
         let buf = buf.as_bytes();
         let _ = crate::io::write_result(buf, "./output.txt");
         //println!("Stats for algo1: {:#?}", avg_stats.0.nodes_visited);
