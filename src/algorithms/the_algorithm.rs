@@ -367,7 +367,7 @@ impl Algorithm {
                 );
 
                 if score.evaluation.eval.unwrap_or(f32::MIN) >= best_score {
-                    best_score = score.evaluation.eval.unwrap();
+                    best_score = score.evaluation.eval.unwrap_or(f32::MIN);
                     tmp_best_move = *mov;
                     self.timestat.set_best_score((100. * best_score) as i32);
                 }
