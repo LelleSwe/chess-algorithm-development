@@ -1,22 +1,21 @@
 use std::collections::HashMap;
 
 use chess::{Action, BitBoard, Board, BoardStatus, ChessMove, Color, MoveGen, Piece};
-use tokio::time::{Duration, Instant};
 
 use crate::algorithms::{draw_checker, eval};
 use crate::common::constants::{modules::*, naive_psqt_tables::*, tapered_pesto_psqt_tables::*};
-use crate::common::utils::{self, module_enabled, piece_value, Stats};
-use crate::modules::{alpha_beta, analyze};
+use crate::common::utils::{self, piece_value, Stats};
 use crate::modules::search_extensions;
 use crate::modules::skip_bad_moves;
 use crate::modules::transposition_table::{self, TranspositionEntry};
+use crate::modules::{alpha_beta, analyze};
+use crate::timestat::TimeStat;
 
 use super::utils::Evaluation;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Algorithm {
-    pub(crate) modules: u32,
-    pub(crate) time_per_move: Duration,
+    pub(crate) timestat: TimeStat,
     /// Number of times that a given board has been played
     pub(crate) board_played_times: HashMap<Board, u32>,
     pub(crate) pawn_hash: HashMap<BitBoard, f32>,
@@ -43,10 +42,9 @@ impl NodeData {
 }
 
 impl Algorithm {
-    pub(crate) fn new(modules: u32, time_per_move: Duration) -> Self {
+    pub(crate) fn new(timestat: TimeStat) -> Self {
         Self {
-            modules,
-            time_per_move,
+            timestat: timestat,
             board_played_times: HashMap::new(),
             pawn_hash: HashMap::new(),
             naive_psqt_knight_hash: HashMap::new(),
@@ -66,16 +64,25 @@ impl Algorithm {
         mut alpha: f32,
         mut beta: f32,
         original: bool,
-        deadline: Option<Instant>,
-        stats: &mut Stats,
         num_extensions: u32,
         board_played_times_prediction: &mut HashMap<u64, u32>,
         mut mg_incremental_psqt_eval: f32,
         mut eg_incremental_psqt_eval: f32,
         transposition_table: &mut HashMap<u64, TranspositionEntry>,
     ) -> NodeData {
+        if self.timestat.node_probe() {
+            return NodeData::new(
+                Evaluation::new(
+                    None,
+                    None,
+                    Some(mg_incremental_psqt_eval + eg_incremental_psqt_eval),
+                ),
+                None,
+            );
+        }
+        self.timestat.increment_nodes();
+
         if depth == 0 {
-            stats.leaves_visited += 1;
             let eval = self.eval(
                 board,
                 board_played_times_prediction,
@@ -114,9 +121,8 @@ impl Algorithm {
 
         let mut boards = Self::create_board_list(
             board,
-            stats,
             legal_moves,
-            if module_enabled(self.modules, TRANSPOSITION_TABLE) {
+            if TRANSPOSITION_TABLE {
                 Some(transposition_table)
             } else {
                 None
@@ -129,26 +135,18 @@ impl Algorithm {
         let mut debug_data = None;
 
         for (i, (chess_move, new_board, transposition_entry)) in boards.into_iter().enumerate() {
-            if deadline.is_some_and(utils::passed_deadline) {
+            if self.timestat.hard_deadline_passed() {
                 // The previous value of progress_on_next_layer comes from deeper layers returning.
                 // We want these contributions to be proportional to the contribution from a single
                 // node on our layer
-                stats.progress_on_next_layer *= 1. / num_legal_moves as f32;
-                stats.progress_on_next_layer += i.saturating_sub(1) as f32 / num_legal_moves as f32;
                 return NodeData::new(best_evaluation, None);
             };
 
-            if depth > stats.max_depth {
-                stats.max_depth = depth;
-            }
-
-            if module_enabled(self.modules, SKIP_BAD_MOVES)
-                && skip_bad_moves::should_skip(num_legal_moves, i)
-            {
+            if SKIP_BAD_MOVES && skip_bad_moves::should_skip(num_legal_moves, i) {
                 return NodeData::new(best_evaluation, None);
             }
 
-            let extend_by = if module_enabled(self.modules, SEARCH_EXTENSIONS) {
+            let extend_by = if SEARCH_EXTENSIONS {
                 search_extensions::calculate(num_extensions, num_legal_moves, new_board)
             } else {
                 0
@@ -164,8 +162,6 @@ impl Algorithm {
                     alpha,
                     beta,
                     false,
-                    deadline,
-                    stats,
                     num_extensions + extend_by,
                     board_played_times_prediction,
                     mg_incremental_psqt_eval,
@@ -177,13 +173,10 @@ impl Algorithm {
                 evaluation.evaluation
             };
 
-            stats.nodes_visited += 1;
-
             // Replace best_eval if ours is better
             if eval::new_eval_is_better(maximise, &best_evaluation, &evaluation) {
-                if original && module_enabled(self.modules, ANALYZE) {
+                if original && ANALYZE {
                     debug_data = Some(analyze::get_debug_data(
-                        self.modules,
                         maximise,
                         &best_evaluation,
                         &chess_move,
@@ -195,15 +188,14 @@ impl Algorithm {
                 best_evaluation.next_action = Some(Action::MakeMove(chess_move));
             }
 
-            if module_enabled(self.modules, ALPHA_BETA) {
+            if ALPHA_BETA {
                 (alpha, beta) = alpha_beta::calc_new(alpha, beta, maximise, evaluation);
                 if alpha > beta {
-                    stats.alpha_beta_breaks += 1;
                     break;
                 }
             }
 
-            if module_enabled(self.modules, TAPERED_INCREMENTAL_PESTO_PSQT) {
+            if TAPERED_INCREMENTAL_PESTO_PSQT {
                 fn calc_increment(piece_type: Piece, location: usize, mg_eg: bool) -> f32 {
                     if mg_eg {
                         TAPERED_MG_PESTO[piece_type.to_index()][location]
@@ -260,12 +252,11 @@ impl Algorithm {
                 Some(mg_incremental_psqt_eval + eg_incremental_psqt_eval);
         }
 
-        if module_enabled(self.modules, TRANSPOSITION_TABLE) {
+        if TRANSPOSITION_TABLE {
             transposition_table::insert_in_transposition_table(
                 transposition_table,
                 board,
                 depth,
-                stats,
                 best_evaluation,
             );
         }
@@ -286,7 +277,6 @@ impl Algorithm {
 
     fn create_board_list(
         board: &Board,
-        stats: &mut Stats,
         legal_moves: MoveGen,
         transposition_table: Option<&HashMap<u64, TranspositionEntry>>,
     ) -> Vec<(ChessMove, Board, Option<TranspositionEntry>)> {
@@ -295,11 +285,8 @@ impl Algorithm {
                 let board = board.make_move_new(chess_move);
                 let mut transposition_entry = None;
                 if let Some(transposition_table) = transposition_table {
-                    transposition_entry = transposition_table::get_transposition_entry(
-                        transposition_table,
-                        stats,
-                        &board,
-                    );
+                    transposition_entry =
+                        transposition_table::get_transposition_entry(transposition_table, &board);
                 }
                 (chess_move, board, transposition_entry)
             })
@@ -331,18 +318,14 @@ impl Algorithm {
         &mut self,
         board: &Board,
         depth: u32,
-        deadline: Option<Instant>,
         transposition_table: &mut HashMap<u64, TranspositionEntry>,
-    ) -> (Option<Action>, Vec<String>, Stats) {
-        let mut stats = Stats::default();
+    ) -> (Option<Action>, Vec<String>) {
         let out = self.node_eval_recursive(
             board,
             depth,
             f32::MIN,
             f32::MAX,
             true,
-            deadline,
-            &mut stats,
             0,
             &mut HashMap::new(),
             0.,
@@ -350,66 +333,58 @@ impl Algorithm {
             transposition_table,
         );
         let analyzer_data = out.debug_data.unwrap_or_default();
-        (out.evaluation.next_action, analyzer_data, stats)
+        (out.evaluation.next_action, analyzer_data)
     }
 
-    pub(crate) fn next_action_iterative_deepening(
-        &mut self,
-        board: &Board,
-        deadline: Instant,
-    ) -> (Action, Vec<String>, Stats) {
+    pub(crate) fn next_action_iterative_deepening(&mut self, board: &Board) -> ChessMove {
+        self.timestat.calc_deadlines(board.side_to_move());
         self.board_played_times.insert(
             *board,
             *self.board_played_times.get(board).unwrap_or(&0) + 1,
         );
 
         let mut transposition_table = HashMap::new();
-        // Guarantee that at least the first layer gets done.
-        const START_DEPTH: u32 = 1;
-        let mut deepest_complete_output =
-            self.next_action(board, START_DEPTH, None, &mut transposition_table);
-        let mut deepest_complete_depth = START_DEPTH;
+        let mut depth = 1;
 
-        for depth in (deepest_complete_depth + 1)..=10 {
-            let latest_output =
-                self.next_action(board, depth, Some(deadline), &mut transposition_table);
-            if utils::passed_deadline(deadline) {
-                // The cancelled layer is the one with this data
-                deepest_complete_output.2.progress_on_next_layer =
-                    latest_output.2.progress_on_next_layer;
-                break;
-            } else {
-                deepest_complete_output = latest_output;
-                deepest_complete_depth = depth;
-            }
-        }
-        deepest_complete_output.2.depth = deepest_complete_depth;
+        let moves = MoveGen::new_legal(board).collect::<Vec<ChessMove>>();
+        let mut best_move = ChessMove::default();
+        while !self.timestat.soft_deadline_passed() && !self.timestat.passed_depth(depth) {
+            let mut best_score = f32::MIN;
+            let mut tmp_best_move = ChessMove::default();
+            for mov in moves.iter() {
+                let new_board = board.make_move_new(*mov);
+                let score = self.node_eval_recursive(
+                    &new_board,
+                    (depth - 1) as u32,
+                    f32::MIN,
+                    f32::MAX,
+                    true,
+                    0,
+                    &mut HashMap::new(),
+                    0.,
+                    0.,
+                    &mut transposition_table,
+                );
 
-        let mut action = match deepest_complete_output.0 {
-            Some(action) => action,
-            None => match board.status() {
-                BoardStatus::Ongoing => {
-                    println!("{}", board);
-                    println!("{:#?}", deepest_complete_output.1);
-                    panic!("No action returned by algorithm even though game is still ongoing")
+                if score.evaluation.eval.unwrap_or(f32::MIN) >= best_score {
+                    best_score = score.evaluation.eval.unwrap();
+                    tmp_best_move = *mov;
+                    self.timestat.set_best_score((100. * best_score) as i32);
                 }
-                BoardStatus::Stalemate => Action::DeclareDraw,
-                BoardStatus::Checkmate => Action::Resign(board.side_to_move()),
-            },
-        };
-
-        if let Action::MakeMove(chess_move) = action {
-            let new_board = board.make_move_new(chess_move);
-            let old_value = *self.board_played_times.get(&new_board).unwrap_or(&0);
-            if old_value >= 3 {
-                // We should declare draw by three-fold repetition. This is not checked
-                // unless we do this.
-                action = Action::DeclareDraw;
             }
-            self.board_played_times.insert(new_board, old_value + 1);
+
+            depth += 1;
+
+            self.timestat.set_depth(depth as i32);
+            self.timestat.print_status();
+
+            if !self.timestat.hard_deadline_passed() {
+                best_move = tmp_best_move;
+            }
         }
 
-        (action, deepest_complete_output.1, deepest_complete_output.2)
+        self.timestat.clear();
+        best_move
     }
 
     pub(crate) fn eval(
@@ -444,7 +419,7 @@ impl Algorithm {
         let diff_material: i32 = material_each_side.0 as i32 - material_each_side.1 as i32;
 
         let mut controlled_squares = 0;
-        if module_enabled(self.modules, SQUARE_CONTROL_METRIC) {
+        if SQUARE_CONTROL_METRIC {
             controlled_squares = if board.side_to_move() == Color::Black {
                 -1i32
             } else {
@@ -454,7 +429,7 @@ impl Algorithm {
 
         // Compares piece position with an 8x8 table containing certain values. The value corresponding to the position of the piece gets added as evaluation.
         let mut naive_psqt: f32 = 0.;
-        if module_enabled(self.modules, NAIVE_PSQT) {
+        if NAIVE_PSQT {
             fn naive_psqt_calc(
                 naive_psqt_table: [f32; 64],
                 piece_bitboard: &BitBoard,
@@ -521,8 +496,8 @@ impl Algorithm {
         let mut mg_tapered_pesto: f32 = 0.;
         let mut eg_tapered_pesto: f32 = 0.;
         let mut tapered_pesto: f32 = 0.;
-        if module_enabled(self.modules, TAPERED_EVERY_PESTO_PSQT) {
-            for i in 0..5+1 {
+        if TAPERED_EVERY_PESTO_PSQT {
+            for i in 0..5 + 1 {
                 mg_tapered_pesto += Self::calc_tapered_psqt_eval(board, i, true);
                 eg_tapered_pesto += Self::calc_tapered_psqt_eval(board, i, false);
             }
@@ -537,7 +512,7 @@ impl Algorithm {
         }
 
         let mut pawn_structure: f32 = 0.;
-        if module_enabled(self.modules, PAWN_STRUCTURE) {
+        if PAWN_STRUCTURE {
             fn pawn_structure_calc(
                 all_pawn_bitboard: &BitBoard,
                 color_bitboard: &BitBoard,
@@ -582,7 +557,7 @@ impl Algorithm {
         }
 
         let mut incremental_psqt_eval: f32 = 0.;
-        if module_enabled(self.modules, TAPERED_INCREMENTAL_PESTO_PSQT) {
+        if TAPERED_INCREMENTAL_PESTO_PSQT {
             incremental_psqt_eval = (material_each_side.0 + material_each_side.1
                 - 2 * piece_value(Piece::King)) as f32
                 * mg_incremental_psqt_eval
@@ -654,7 +629,7 @@ impl Algorithm {
             3 => tapered_psqt_calc!(board, Rook, 3, mg_eg),
             4 => tapered_psqt_calc!(board, Queen, 4, mg_eg),
             5 => tapered_psqt_calc!(board, King, 5, mg_eg),
-            6_u8..=u8::MAX => unimplemented!(),
+            _ => unimplemented!(),
         }
     }
 

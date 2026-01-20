@@ -1,14 +1,14 @@
 pub(crate) mod modules {
-    pub(crate) const ANALYZE: u32 = 1;
-    pub(crate) const ALPHA_BETA: u32 = 1 << 1;
-    pub(crate) const TRANSPOSITION_TABLE: u32 = 1 << 2;
-    pub(crate) const SEARCH_EXTENSIONS: u32 = 1 << 3;
-    pub(crate) const SQUARE_CONTROL_METRIC: u32 = 1 << 4;
-    pub(crate) const SKIP_BAD_MOVES: u32 = 1 << 5;
-    pub(crate) const NAIVE_PSQT: u32 = 1 << 6;
-    pub(crate) const PAWN_STRUCTURE: u32 = 1 << 7;
-    pub(crate) const TAPERED_EVERY_PESTO_PSQT: u32 = 1 << 8;
-    pub(crate) const TAPERED_INCREMENTAL_PESTO_PSQT: u32 = 1 << 9;
+    pub(crate) const ANALYZE: bool = false;
+    pub(crate) const ALPHA_BETA: bool = true;
+    pub(crate) const TRANSPOSITION_TABLE: bool = true;
+    pub(crate) const SEARCH_EXTENSIONS: bool = true;
+    pub(crate) const SQUARE_CONTROL_METRIC: bool = true;
+    pub(crate) const SKIP_BAD_MOVES: bool = true;
+    pub(crate) const NAIVE_PSQT: bool = false;
+    pub(crate) const PAWN_STRUCTURE: bool = true;
+    pub(crate) const TAPERED_EVERY_PESTO_PSQT: bool = true;
+    pub(crate) const TAPERED_INCREMENTAL_PESTO_PSQT: bool = false;
 }
 
 pub(crate) const NUMBER_OF_MODULES: usize = 10;

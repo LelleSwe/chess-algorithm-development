@@ -143,11 +143,5 @@ pub(crate) struct StatsAverage {
     pub(crate) time_for_transposition_access: Duration,
 }
 
-pub(crate) fn passed_deadline(deadline: Instant) -> bool {
-    let time_since_deadline = Instant::now().saturating_duration_since(deadline);
-    !time_since_deadline.is_zero()
-}
 
-pub(crate) fn module_enabled(modules: u32, module_to_test: u32) -> bool {
-    modules & module_to_test != 0
-}
+

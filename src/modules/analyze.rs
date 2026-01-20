@@ -5,7 +5,6 @@ use crate::common::utils;
 
 #[must_use]
 pub(crate) fn get_debug_data(
-    modules: u32,
     maximise: bool,
     best_evaluation: &Evaluation,
     chess_move: &ChessMove,
@@ -16,7 +15,6 @@ pub(crate) fn get_debug_data(
     let new_best_eval = evaluation.eval;
     utils::vector_push_debug!(
         vec,
-        modules,
         maximise,
         best_evaluation.eval,
         new_best_move,
