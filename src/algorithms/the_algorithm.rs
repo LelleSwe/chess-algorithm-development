@@ -349,6 +349,9 @@ impl Algorithm {
         let moves = MoveGen::new_legal(board).collect::<Vec<ChessMove>>();
         let mut best_move = ChessMove::default();
         while !self.timestat.soft_deadline_passed() && !self.timestat.passed_depth(depth) {
+            if depth > 50 {
+                break;
+            }
             let mut best_score = f32::MIN;
             let mut tmp_best_move = ChessMove::default();
             for mov in moves.iter() {
@@ -366,8 +369,13 @@ impl Algorithm {
                     &mut transposition_table,
                 );
 
-                if score.evaluation.eval.unwrap_or(f32::MIN) >= best_score {
-                    best_score = score.evaluation.eval.unwrap_or(f32::MIN);
+                let score2 = score.evaluation.eval.unwrap_or(f32::MIN)
+                    * match board.side_to_move() {
+                        Color::White => 1.,
+                        Color::Black => -1.,
+                    };
+                if score2 >= best_score {
+                    best_score = score2;
                     tmp_best_move = *mov;
                     self.timestat.set_best_score((100. * best_score) as i32);
                 }
@@ -394,7 +402,11 @@ impl Algorithm {
         mg_incremental_psqt_eval: f32,
         eg_incremental_psqt_eval: f32,
     ) -> f32 {
-        let board_status = board.status();
+        let statttt = {
+            // #[inline(never)]
+            || board.status()
+        };
+        let board_status = statttt();
         if board_status == BoardStatus::Stalemate {
             return 0.;
         }
@@ -575,6 +587,7 @@ impl Algorithm {
         evaluation
     }
 
+    #[inline(never)]
     fn calc_tapered_psqt_eval(board: &Board, piece: u8, mg_eg: bool) -> f32 {
         fn tapered_psqt_calc(
             piece_bitboard: &BitBoard,
@@ -585,31 +598,22 @@ impl Algorithm {
             // Essentially, gets the dot product between a "vector" of the bitboard (containing 64 0s and 1s) and the table with NAIVE_PSQT bonus constants.
             let mut bonus: f32 = 0.;
 
-            if mg_eg {
-                // Gets the bitboard with all piece positions, and runs bitwise and for the board having one's own colors.
-                // Iterates over all 64 squares on the board.
-                for i in 0..63 {
-                    // The psqt tables and bitboards are flipped vertically, hence .reverse_colors().
-                    // Reverse colors is for some reason faster than replacing i with 56-i+2*(i%8).
-                    // By being tapered, it means that we have an (opening + middlegame) and an endgame PSQT,
-                    // and we (hopefully?) linerarly transition from one to the other, depending on material value.
-                    bonus += ((piece_bitboard & color_bitboard)
-                        .reverse_colors()
-                        .to_size(i as u8)
-                        & 1) as f32
-                        * TAPERED_MG_PESTO[piece_index][i];
-                }
-                bonus
-            } else {
-                for i in 0..63 {
-                    bonus += ((piece_bitboard & color_bitboard)
-                        .reverse_colors()
-                        .to_size(i as u8)
-                        & 1) as f32
-                        * TAPERED_EG_PESTO[piece_index][i];
-                }
-                bonus
+            let table = match mg_eg {
+                true => &TAPERED_MG_PESTO,
+                false => &TAPERED_EG_PESTO,
+            };
+            let mut bb = (piece_bitboard & color_bitboard).0;
+            // Gets the bitboard with all piece positions, and runs bitwise and for the board having one's own colors.
+            while bb != 0 {
+                let lowest = bb.trailing_zeros();
+                bb &= bb - 1;
+                // The psqt tables and bitboards are flipped vertically, hence .reverse_colors().
+                // Reverse colors is for some reason faster than replacing i with 56-i+2*(i%8).
+                // By being tapered, it means that we have an (opening + middlegame) and an endgame PSQT,
+                // and we (hopefully?) linerarly transition from one to the other, depending on material value.
+                bonus += table[piece_index][lowest as usize];
             }
+            bonus
         }
 
         macro_rules! tapered_psqt_calc {

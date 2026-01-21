@@ -8,10 +8,9 @@ use crate::common::constants::{
     NUMBER_OF_MODULES,
 };
 use crate::{algorithms::the_algorithm::Algorithm, timestat::TimeStat};
+use chess::Board;
 use chess::ChessMove;
-use chess::{Action, Board};
 
-use core::time;
 use std::{io::*, str::FromStr};
 
 mod algorithms;
@@ -88,6 +87,16 @@ fn main() {
                 let best_move = algo.next_action_iterative_deepening(&board);
                 println!("bestmove {}", best_move);
             }
+
+            "playself" => loop {
+                let _ = algo.timestat.add_movetime("1000");
+                let best_move = algo.next_action_iterative_deepening(&board);
+                print!("{}", best_move);
+                if best_move == ChessMove::default() {
+                    break;
+                }
+                board = board.make_move_new(best_move);
+            },
 
             "isready" => {
                 println!("readyok");

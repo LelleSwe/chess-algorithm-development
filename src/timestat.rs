@@ -141,6 +141,10 @@ impl TimeStat {
             self.soft_deadline = Some(self.start.unwrap() + search_time.div_f64(3.0));
             self.hard_deadline = Some(self.start.unwrap() + search_time);
         }
+        if self.movetime.is_some() {
+            self.soft_deadline = Some(self.start.unwrap() + self.movetime.unwrap());
+            self.hard_deadline = Some(self.start.unwrap() + self.movetime.unwrap());
+        }
     }
 
     pub fn format_score(score: i32) -> String {
