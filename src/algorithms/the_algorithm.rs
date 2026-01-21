@@ -4,7 +4,7 @@ use chess::{Action, BitBoard, Board, BoardStatus, ChessMove, Color, MoveGen, Pie
 
 use crate::algorithms::{draw_checker, eval};
 use crate::common::constants::{modules::*, naive_psqt_tables::*, tapered_pesto_psqt_tables::*};
-use crate::common::utils::{self, piece_value, Stats};
+use crate::common::utils::{self, piece_value};
 use crate::modules::search_extensions;
 use crate::modules::skip_bad_moves;
 use crate::modules::transposition_table::{self, TranspositionEntry};
@@ -402,21 +402,6 @@ impl Algorithm {
         mg_incremental_psqt_eval: f32,
         eg_incremental_psqt_eval: f32,
     ) -> f32 {
-        let statttt = {
-            // #[inline(never)]
-            || board.status()
-        };
-        let board_status = statttt();
-        if board_status == BoardStatus::Stalemate {
-            return 0.;
-        }
-        if board_status == BoardStatus::Checkmate {
-            return if board.side_to_move() == Color::White {
-                f32::MIN
-            } else {
-                f32::MAX
-            };
-        }
         let board_played_times = *self.board_played_times.get(board).unwrap_or(&0)
             + *board_played_times_prediction
                 .get(&board.get_hash())

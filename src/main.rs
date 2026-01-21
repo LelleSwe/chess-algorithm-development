@@ -88,15 +88,23 @@ fn main() {
                 println!("bestmove {}", best_move);
             }
 
-            "playself" => loop {
-                let _ = algo.timestat.add_movetime("1000");
-                let best_move = algo.next_action_iterative_deepening(&board);
-                print!("{}", best_move);
-                if best_move == ChessMove::default() {
-                    break;
+            "playself" => {
+                let mut nps: Vec<i64> = Vec::new();
+                loop {
+                    let _ = algo.timestat.add_movetime("1000");
+                    let best_move = algo.next_action_iterative_deepening(&board);
+                    println!("{}", best_move);
+                    nps.push(
+                        algo.timestat.nps_vec.iter().map(|e| *e).sum::<i64>()
+                            / algo.timestat.nps_vec.len() as i64,
+                    );
+                    if best_move == ChessMove::default() {
+                        break;
+                    }
+                    board = board.make_move_new(best_move);
+                    println!("{}", nps.iter().map(|e| *e).sum::<i64>() / nps.len() as i64);
                 }
-                board = board.make_move_new(best_move);
-            },
+            }
 
             "isready" => {
                 println!("readyok");

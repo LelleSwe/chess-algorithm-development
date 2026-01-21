@@ -14,6 +14,7 @@ pub struct TimeStat {
     total_nodes: i64,
     nodes_since_last: i64,
     nps: i64,
+    pub nps_vec: Vec<i64>,
     depth: i32,
     best_score: i32,
     start: Option<Instant>,
@@ -36,6 +37,7 @@ impl TimeStat {
             nodes_since_last: 0,
             nps: 0,
             depth: 0,
+            nps_vec: Vec::new(),
             best_score: 0,
             start: None,
             timer: None,
@@ -168,6 +170,9 @@ impl TimeStat {
 
         self.nps = (self.total_nodes as f64
             / (self.timer.unwrap() - self.start.unwrap()).as_secs_f64()) as i64;
+        if self.nps != 0 {
+            self.nps_vec.push(self.nps);
+        }
     }
 
     pub fn soft_deadline_passed(&self) -> bool {
@@ -232,6 +237,24 @@ impl TimeStat {
     }
 
     pub fn clear(&mut self) {
-        *self = Self::new();
+        *self = Self {
+            wtime: None,
+            btime: None,
+            winc: None,
+            binc: None,
+            movestogo: None,
+            movetime: None,
+            search_depth: None,
+            total_nodes: 0,
+            nodes_since_last: 0,
+            nps: 0,
+            depth: 0,
+            nps_vec: self.nps_vec.clone(),
+            best_score: 0,
+            start: None,
+            timer: None,
+            soft_deadline: None,
+            hard_deadline: None,
+        };
     }
 }
