@@ -18,6 +18,7 @@ mod common;
 mod io;
 mod modules;
 mod timestat;
+mod tt;
 
 fn main() {
     let mut board = Board::default();

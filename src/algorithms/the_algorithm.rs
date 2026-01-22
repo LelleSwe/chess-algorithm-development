@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 use chess::{Action, BitBoard, Board, BoardStatus, ChessMove, Color, MoveGen, Piece};
 
@@ -7,17 +8,18 @@ use crate::common::constants::{modules::*, naive_psqt_tables::*, tapered_pesto_p
 use crate::common::utils::{self, piece_value};
 use crate::modules::search_extensions;
 use crate::modules::skip_bad_moves;
-use crate::modules::transposition_table::{self, TranspositionEntry};
+use crate::modules::transposition_table::{TTEntry, TranspositionTable};
 use crate::modules::{alpha_beta, analyze};
 use crate::timestat::TimeStat;
 
 use super::utils::Evaluation;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct Algorithm {
     pub(crate) timestat: TimeStat,
     /// Number of times that a given board has been played
     pub(crate) board_played_times: HashMap<Board, u32>,
+    pub(crate) transposition_table: TranspositionTable,
     pub(crate) pawn_hash: HashMap<BitBoard, f32>,
     pub(crate) naive_psqt_pawn_hash: HashMap<BitBoard, f32>,
     pub(crate) naive_psqt_rook_hash: HashMap<BitBoard, f32>,
@@ -46,6 +48,7 @@ impl Algorithm {
         Self {
             timestat: timestat,
             board_played_times: HashMap::new(),
+            transposition_table: TranspositionTable::new(),
             pawn_hash: HashMap::new(),
             naive_psqt_knight_hash: HashMap::new(),
             naive_psqt_pawn_hash: HashMap::new(),
@@ -68,7 +71,6 @@ impl Algorithm {
         board_played_times_prediction: &mut HashMap<u64, u32>,
         mut mg_incremental_psqt_eval: f32,
         mut eg_incremental_psqt_eval: f32,
-        transposition_table: &mut HashMap<u64, TranspositionEntry>,
     ) -> NodeData {
         if self.timestat.node_probe() {
             return NodeData::new(
@@ -119,15 +121,7 @@ impl Algorithm {
             return NodeData::new(best_evaluation, None);
         }
 
-        let mut boards = Self::create_board_list(
-            board,
-            legal_moves,
-            if TRANSPOSITION_TABLE {
-                Some(transposition_table)
-            } else {
-                None
-            },
-        );
+        let mut boards = self.create_board_list(board, legal_moves);
 
         // Sort by eval
         Self::sort_by_eval(maximise, &mut boards);
@@ -152,7 +146,10 @@ impl Algorithm {
                 0
             };
 
-            let evaluation = if transposition_entry.is_some_and(|entry| entry.depth >= depth) {
+            let evaluation = if transposition_entry
+                .as_ref()
+                .is_some_and(|entry| entry.depth >= depth)
+            {
                 transposition_entry.unwrap().evaluation
             } else {
                 draw_checker::count_board(board_played_times_prediction, &new_board);
@@ -166,7 +163,6 @@ impl Algorithm {
                     board_played_times_prediction,
                     mg_incremental_psqt_eval,
                     eg_incremental_psqt_eval,
-                    transposition_table,
                 );
                 draw_checker::uncount_board(board_played_times_prediction, &new_board);
                 debug_data = evaluation.debug_data;
@@ -253,12 +249,14 @@ impl Algorithm {
         }
 
         if TRANSPOSITION_TABLE {
-            transposition_table::insert_in_transposition_table(
-                transposition_table,
-                board,
-                depth,
-                best_evaluation,
-            );
+            let mut hasher = DefaultHasher::new();
+            let _ = board.hash(&mut hasher);
+            let hash = hasher.finish();
+            self.transposition_table.insert(TTEntry {
+                hash: hash,
+                depth: depth,
+                evaluation: best_evaluation,
+            });
         }
 
         if debug_data.is_some() {
@@ -276,31 +274,31 @@ impl Algorithm {
     }
 
     fn create_board_list(
+        &self,
         board: &Board,
         legal_moves: MoveGen,
-        transposition_table: Option<&HashMap<u64, TranspositionEntry>>,
-    ) -> Vec<(ChessMove, Board, Option<TranspositionEntry>)> {
+    ) -> Vec<(ChessMove, Board, Option<TTEntry>)> {
         legal_moves
             .map(|chess_move| {
                 let board = board.make_move_new(chess_move);
-                let mut transposition_entry = None;
-                if let Some(transposition_table) = transposition_table {
-                    transposition_entry =
-                        transposition_table::get_transposition_entry(transposition_table, &board);
-                }
-                (chess_move, board, transposition_entry)
+                let mut hasher = DefaultHasher::new();
+                let _ = board.hash(&mut hasher);
+                let hash = hasher.finish();
+                let transposition_entry = self.transposition_table.get(hash);
+
+                (chess_move, board, transposition_entry.cloned())
             })
-            .collect::<Vec<(ChessMove, Board, Option<TranspositionEntry>)>>()
+            .collect::<Vec<(ChessMove, Board, Option<TTEntry>)>>()
     }
 
-    fn sort_by_eval(maximise: bool, boards: &mut [(ChessMove, Board, Option<TranspositionEntry>)]) {
+    fn sort_by_eval(maximise: bool, boards: &mut [(ChessMove, Board, Option<TTEntry>)]) {
         boards.sort_by(|board1, board2| {
-            let eval1 = if let Some(entry) = board1.2 {
+            let eval1 = if let Some(entry) = &board1.2 {
                 entry.evaluation.eval.unwrap_or_default()
             } else {
                 0.
             };
-            let eval2 = if let Some(entry) = board2.2 {
+            let eval2 = if let Some(entry) = &board2.2 {
                 entry.evaluation.eval.unwrap_or_default()
             } else {
                 0.
@@ -314,12 +312,7 @@ impl Algorithm {
         });
     }
 
-    fn next_action(
-        &mut self,
-        board: &Board,
-        depth: u32,
-        transposition_table: &mut HashMap<u64, TranspositionEntry>,
-    ) -> (Option<Action>, Vec<String>) {
+    fn next_action(&mut self, board: &Board, depth: u32) -> (Option<Action>, Vec<String>) {
         let out = self.node_eval_recursive(
             board,
             depth,
@@ -330,7 +323,6 @@ impl Algorithm {
             &mut HashMap::new(),
             0.,
             0.,
-            transposition_table,
         );
         let analyzer_data = out.debug_data.unwrap_or_default();
         (out.evaluation.next_action, analyzer_data)
@@ -343,7 +335,6 @@ impl Algorithm {
             *self.board_played_times.get(board).unwrap_or(&0) + 1,
         );
 
-        let mut transposition_table = HashMap::new();
         let mut depth = 1;
 
         let moves = MoveGen::new_legal(board).collect::<Vec<ChessMove>>();
@@ -366,7 +357,6 @@ impl Algorithm {
                     &mut HashMap::new(),
                     0.,
                     0.,
-                    &mut transposition_table,
                 );
 
                 let score2 = score.evaluation.eval.unwrap_or(f32::MIN)

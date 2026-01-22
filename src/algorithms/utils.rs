@@ -1,6 +1,6 @@
 use chess::Action;
 
-#[derive(Debug, Clone, PartialEq, Copy)]
+#[derive(Debug, Clone, PartialEq, Copy, Default)]
 pub(crate) struct Evaluation {
     // pub(super) debug_data: Option<Vec<String>>,
     pub(crate) eval: Option<f32>,
